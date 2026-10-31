@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450">
+  <rect width="800" height="450" fill="#dcfce7"/>
+  <rect y="300" width="800" height="150" fill="#bbf7d0"/>
+  <rect x="210" y="110" width="380" height="175" rx="8" fill="#ffffff" stroke="#1f3b57" stroke-width="5"/>
+  <text x="240" y="155" font-family="Inter, sans-serif" font-size="19" font-weight="800" fill="#1f3b57">PEMPROV DKI JAKARTA — DLH UPST</text>
+  <text x="240" y="185" font-family="Inter, sans-serif" font-size="16" font-weight="700" fill="#0f2438">IPAS TPST Bantargebang (#10069030000)</text>
+  <text x="240" y="215" font-family="Inter, sans-serif" font-size="14" fill="#334155">Pagu: Rp12,58 miliar • Kontrak: Rp9,95 miliar</text>
+  <text x="240" y="245" font-family="monospace" font-size="13" fill="#15803d">Jl. Pangkalan V, Ciketing Udik, Bantargebang</text>
+  <text x="40" y="55" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#14532d">Foto Papan Proyek — Klaim Lokasi Kanonik</text>
+</svg>

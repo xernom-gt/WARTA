@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  /* Token warna WARTA (Bagian 4 spesifikasi) */
+  --color-brand: #1f3b57;
+  --color-brand-dark: #0f2438;
+  --color-action-bg: #e0f2fe;
+  --color-action-border: #0369a1;
+  --color-action-text: #0c4a6e;
+  --color-draft-bg: #e5e7eb;
+  --color-draft-border: #6b7280;
+  --color-draft-text: #111827;
+  --color-wait-bg: #fef3c7;
+  --color-wait-border: #b45309;
+  --color-wait-text: #78350f;
+  --color-ok-bg: #dcfce7;
+  --color-ok-border: #15803d;
+  --color-ok-text: #14532d;
+  --color-bad-bg: #fee2e2;
+  --color-bad-border: #b91c1c;
+  --color-bad-text: #7f1d1d;
+  --color-done-bg: #dbeafe;
+  --color-done-border: #1d4ed8;
+  --color-done-text: #1e3a8a;
+
+  --animate-pop: pop 0.2s ease-out;
+  --animate-slide-up: slide-up 0.25s ease-out;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+
+  @keyframes pop {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(3 105 161 / 0.35); }
+    50% { box-shadow: 0 0 0 6px rgb(3 105 161 / 0); }
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
