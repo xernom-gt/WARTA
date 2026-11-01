@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450">
+  <rect width="800" height="450" fill="#dbeafe"/>
+  <rect y="280" width="800" height="170" fill="#cbd5e1"/>
+  <rect x="80" y="130" width="220" height="160" fill="#94a3b8" stroke="#475569" stroke-width="3"/>
+  <rect x="340" y="90" width="8" height="200" fill="#f59e0b"/>
+  <polygon points="340,95 490,95 340,120" fill="#f59e0b"/>
+  <rect x="0" y="255" width="800" height="35" fill="#1f3b57" opacity="0.85"/>
+  <text x="40" y="55" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#1f3b57">Foto Bukti Lapangan — Rusun Rorotan IX Tahap I</text>
+  <text x="40" y="82" font-family="monospace" font-size="15" fill="#0369a1">EXIF Geotag: -6.1475, 106.9528 • Rorotan, Kec. Cilincing</text>
+</svg>

@@ -1,0 +1,167 @@
+import { useEffect } from 'react';
+import { Building2, Camera, Database, MapPinned, Users, X } from 'lucide-react';
+import { useWarta } from '../../context/WartaContext';
+import { getProject } from '../../data/wartaData';
+import StatusBadge from '../common/StatusBadge';
+import ContractRiskBadges from './ContractRiskBadges';
+import SubLocationTabs from './SubLocationTabs';
+import TenderHistoryAccordion from './TenderHistoryAccordion';
+
+const NO_CONTRACT = 'Nilai kontrak belum tersedia di sumber publik.';
+
+export default function ProjectDetailModal() {
+  const { activeScreen, selectedProjectId, navigate, compactRupiah, queue } = useWarta();
+
+  useEffect(() => {
+    if (activeScreen !== 'detail') return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && navigate('peta');
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeScreen, navigate]);
+
+  if (activeScreen !== 'detail' || !selectedProjectId) return null;
+  const p = getProject(selectedProjectId);
+  const reports = queue.filter((q) => q.projectId === p.id);
+  const money = (c: string, f: string) => (compactRupiah ? c : f);
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal aria-labelledby="detail-title">
+      <div className="max-h-[92vh] w-full max-w-3xl animate-slide-up overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <StatusBadge status={p.status} size="md" />
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{p.category}</span>
+            </div>
+            <h2 id="detail-title" className="text-xl font-extrabold text-slate-900">{p.title}</h2>
+            <p className="font-mono text-sm text-slate-500">Kode tender #{p.spseCode}</p>
+          </div>
+          <button id="detail-close" onClick={() => navigate('peta')} className="rounded-full p-2 hover:bg-slate-100" aria-label="Tutup detail">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          <p className="flex items-start gap-2 text-sm text-slate-700">
+            <Building2 className="mt-0.5 size-4 shrink-0 text-brand" />
+            {p.satker}
+          </p>
+
+          {/* Anggaran */}
+          <section>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Anggaran</h3>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Money label="Pagu" value={money(p.paguCompact, p.paguFull)} strong />
+              <Money label="HPS" value={money(p.hpsCompact, p.hpsFull)} />
+              {p.kontrakAvailable && p.kontrakCompact && p.kontrakFull ? (
+                <Money label="Nilai Kontrak" value={money(p.kontrakCompact, p.kontrakFull)} />
+              ) : (
+                <div className="rounded-xl border border-dashed border-draft-border bg-draft-bg p-3">
+                  <p className="text-xs font-semibold text-slate-500">Nilai Kontrak</p>
+                  <p className="text-sm font-medium text-draft-text">{NO_CONTRACT}</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Tahun */}
+          <section>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Tahun Anggaran</h3>
+            <div className="flex flex-wrap gap-2">
+              {p.years.map((y) => (
+                <span key={y} className="rounded-full border border-action-border bg-action-bg px-3 py-1 text-sm font-semibold text-action-text">APBD {y}</span>
+              ))}
+            </div>
+            {p.multiYearsMicrocopy && <p className="mt-2 text-sm text-slate-600">{p.multiYearsMicrocopy}</p>}
+          </section>
+
+          {/* Lokasi */}
+          <section>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Lokasi</h3>
+            <div className="rounded-xl border border-slate-200 p-3 text-sm">
+              <p className="flex items-start gap-2 font-medium"><MapPinned className="mt-0.5 size-4 shrink-0 text-brand" />{p.locationDesc}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold">{p.precisionBadge}</span>
+                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${p.locationSource === 'warga' ? 'bg-ok-bg text-ok-text' : 'bg-slate-100 text-slate-600'}`}>
+                  Sumber: {p.locationSource === 'warga' ? 'Warga' : 'SPSE'}
+                </span>
+              </div>
+              {p.precisionMicrocopy && <p className="mt-2 text-slate-600">{p.precisionMicrocopy}</p>}
+              {p.precisionResolutionNote && <p className="mt-2 rounded-lg bg-action-bg p-2 text-action-text">{p.precisionResolutionNote}</p>}
+              {p.canonicalMicrocopy && <p className="mt-2 rounded-lg bg-ok-bg p-2 font-medium text-ok-text">{p.canonicalMicrocopy}</p>}
+            </div>
+            {p.subLocations && (
+              <div className="mt-3">
+                <SubLocationTabs locations={p.subLocations} microcopy={p.subLocationsMicrocopy} />
+              </div>
+            )}
+          </section>
+
+          {/* Risiko */}
+          <section>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Indikator Risiko Kontrak</h3>
+            <ContractRiskBadges flags={p.riskFlags} />
+          </section>
+
+          {p.isRetender && p.retenderMicrocopy && (
+            <TenderHistoryAccordion title={p.retenderMicrocopy} tenders={p.failedTenders} currentCode={p.spseCode} />
+          )}
+
+          {/* Laporan */}
+          <section>
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500">
+              <Users className="size-4" /> Laporan Warga ({p.reportsCount})
+            </h3>
+            {reports.length === 0 ? (
+              <p className="text-sm text-slate-500">Belum ada laporan di antrean untuk paket ini.</p>
+            ) : (
+              <ul className="space-y-2">
+                {reports.map((r) => (
+                  <li key={r.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-3 text-sm">
+                    <div>
+                      <p className="font-semibold">{r.categoryLabel}</p>
+                      <p className="text-slate-600">{r.narrative}</p>
+                      <p className="mt-1 text-xs text-slate-500">{r.authorDisplayName} • {r.createdAt}</p>
+                    </div>
+                    <StatusBadge status={r.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        {/* Footer */}
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-slate-500"><Database className="size-3.5" />{p.sourceNote}</p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button id="detail-report" onClick={() => navigate('lapor', p.id)} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 font-semibold text-white transition hover:bg-brand-dark">
+              <Camera className="size-4" /> Laporkan Kondisi
+            </button>
+            <button
+              id="detail-claim"
+              onClick={() => navigate('klaim', p.id)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border-2 py-3 font-semibold transition ${
+                p.isRoughArea && !p.isCanonicalClaimed
+                  ? 'animate-pulse-soft border-action-border bg-action-bg text-action-text hover:bg-sky-100'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <MapPinned className="size-4" /> Klaim Lokasi
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Money({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-3 ${strong ? 'border-brand bg-brand text-white' : 'border-slate-200 bg-slate-50'}`}>
+      <p className={`text-xs font-semibold ${strong ? 'text-sky-200' : 'text-slate-500'}`}>{label}</p>
+      <p className="break-words text-lg font-extrabold">{value}</p>
+    </div>
+  );
+}
