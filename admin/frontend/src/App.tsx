@@ -1,5 +1,6 @@
 import { WartaProvider, useWarta } from './context/WartaContext';
 import CitizenLoginModal from './components/common/CitizenLoginModal';
+import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
 import DevSimulatorBar from './components/layout/DevSimulatorBar';
 import Footer from './components/layout/Footer';
 import Header from './components/layout/Header';
@@ -38,6 +39,7 @@ export default function App() {
         <Footer />
         <ProjectDetailModal />
         <CitizenLoginModal />
+        <ScrollPositionIndicator />
       </div>
     </WartaProvider>
   );
