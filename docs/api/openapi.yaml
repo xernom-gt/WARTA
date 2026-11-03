@@ -1,0 +1,2861 @@
+openapi: 3.0.3
+
+info:
+  title: WARTA API
+  version: 1.0.0
+  description: |
+    REST API for WARTA, a citizen transparency platform for Indonesian
+    infrastructure procurement.
+
+    The contract is derived from `docs/database/database-design.md` and
+    `docs/api/api-requirements.md`.
+
+    Conventions:
+    - JSON field names use `snake_case`.
+    - Money is serialized as a decimal string, never a float.
+    - `contract_amount` may be `null`; it must never be coerced to zero.
+    - Public responses never expose `email` or `password_hash`.
+    - Verification state, vote counters, and project status are server-managed.
+  contact:
+    name: WARTA Team
+    url: https://github.com/warta
+  license:
+    name: Proprietary
+    url: https://github.com/warta
+
+servers:
+  - url: https://{host}/api/v1
+    description: WARTA API
+    variables:
+      host:
+        default: api.warta.id
+        description: API host. Use `localhost:3000` for local development.
+
+tags:
+  - name: Auth
+    description: Registration, login, and session handling.
+  - name: Users
+    description: Public profiles and the authenticated citizen's profile.
+  - name: Projects
+    description: Procurement packages, tenders, locations, and risk flags.
+  - name: Reports
+    description: Citizen condition reports and their media.
+  - name: Evidence
+    description: Additional evidence attached to a report.
+  - name: Location Claims
+    description: Citizen proposals for a more precise project location.
+  - name: Verification
+    description: The unified verification queue and citizen votes.
+  - name: Media
+    description: Photo attachments for reports, claims, and evidence.
+  - name: Health
+    description: Service liveness and dependency status.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Report service health
+      description: Returns the status of the API, database, and object storage.
+      security: []
+      responses:
+        '200':
+          description: Service status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          description: A dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerCitizen
+      summary: Create a citizen account
+      description: |
+        Creates a user with a public display name and private credentials.
+        The password is hashed before storage.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrivateResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Exchange credentials for a bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      summary: Confirm an email address
+      description: |
+        Consumes a single-use verification token and sets
+        `users.email_verified_at`. The endpoint is public because the token
+        carries the account identity. Expired or tampered tokens return
+        `422 validation_failed`; an already verified address returns
+        `409 email_already_verified`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrivateResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/resend-verification:
+    post:
+      tags: [Auth]
+      operationId: resendVerification
+      summary: Send a new verification email
+      description: |
+        Authenticated. Invalidates the previous token and sends a new one.
+        Limited to 3 requests per hour per account. Returns `204` even when
+        the account is already verified, so the endpoint cannot be used to
+        probe account state.
+      responses:
+        '204':
+          description: Request accepted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current token
+      responses:
+        '204':
+          description: Token revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Return the authenticated citizen's private profile
+      description: |
+        This is the only endpoint that returns `email`. Public endpoints
+        operate on `/users/{user_id}` instead.
+      responses:
+        '200':
+          description: Private profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrivateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/me:
+    patch:
+      tags: [Users]
+      operationId: updateCurrentUser
+      summary: Update the authenticated citizen's display name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrivateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Users]
+      operationId: deactivateCurrentUser
+      summary: Deactivate the authenticated account
+      description: Sets `is_active = false`. The account can no longer log in.
+      responses:
+        '204':
+          description: Account deactivated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/me/reports:
+    get:
+      tags: [Users]
+      operationId: listMyReports
+      summary: List reports authored by the caller
+      parameters:
+        - $ref: '#/components/parameters/ReportStatusFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The caller's reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/me/claims:
+    get:
+      tags: [Users]
+      operationId: listMyClaims
+      summary: List location claims authored by the caller
+      parameters:
+        - $ref: '#/components/parameters/ClaimStatusFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The caller's location claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationClaimListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/me/votes:
+    get:
+      tags: [Users]
+      operationId: listMyVotes
+      summary: List votes cast by the caller
+      description: |
+        Returns the caller's votes with the current outcome of each voted
+        item. `resolution` is always present, including while an item is
+        still `menunggu`. The outcome is the item's current state, not a
+        snapshot from the moment of voting.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The caller's vote history with item outcomes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyVoteListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/{user_id}:
+    get:
+      tags: [Users]
+      operationId: getPublicUser
+      summary: Return a public user profile
+      description: Returns `id`, `display_name`, `is_active`, and `created_at` only.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Public profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublicResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List and filter the project catalog
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/CategoryFilter'
+        - $ref: '#/components/parameters/CityFilter'
+        - $ref: '#/components/parameters/ProjectStatusFilter'
+        - $ref: '#/components/parameters/YearFilter'
+        - $ref: '#/components/parameters/PrecisionLevelFilter'
+        - $ref: '#/components/parameters/IsOutsideDkiFilter'
+        - $ref: '#/components/parameters/IsRetenderFilter'
+        - $ref: '#/components/parameters/ProjectSort'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated project catalog.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListResponse'
+        '304':
+          description: Not modified.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/map:
+    get:
+      tags: [Projects]
+      operationId: listProjectMapPins
+      summary: Return lightweight project pins for a map viewport
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/BBox'
+        - $ref: '#/components/parameters/ProjectStatusFilter'
+        - $ref: '#/components/parameters/CategoryFilter'
+      responses:
+        '200':
+          description: Project pins inside the viewport.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMapPinListResponse'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}:
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Return one project with related rows and derived fields
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project detail.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetailResponse'
+        '304':
+          description: Not modified.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/tenders:
+    get:
+      tags: [Projects]
+      operationId: listProjectTenders
+      summary: Return a project's tender history
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Tender history ordered by creation time ascending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/locations:
+    get:
+      tags: [Projects]
+      operationId: listProjectLocations
+      summary: Return primary and sub-locations of a project
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project locations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectLocationsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/risk-flags:
+    get:
+      tags: [Projects]
+      operationId: listProjectRiskFlags
+      summary: Return a project's active risk indicators
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Active risk flags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskFlagListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/reports:
+    get:
+      tags: [Reports]
+      operationId: listProjectReports
+      summary: List submitted reports for a project
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ReportStatusFilter'
+        - $ref: '#/components/parameters/ReportCategoryFilter'
+        - $ref: '#/components/parameters/AuthorFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Reports for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Reports]
+      operationId: createReport
+      summary: Create a draft report or submit one directly
+      description: |
+        The caller becomes `user_id`. `status`, `submitted_at`, and
+        `created_at` are server-controlled. Passing `submit: true` runs the
+        submit validation and enqueues a verification item.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Report created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/location-claims:
+    get:
+      tags: [Location Claims]
+      operationId: listProjectLocationClaims
+      summary: List location claims for a project
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ClaimStatusFilter'
+        - $ref: '#/components/parameters/AuthorFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Location claims for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationClaimListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Location Claims]
+      operationId: createLocationClaim
+      summary: Submit a location claim for a project
+      description: |
+        Creates a claim with `status = menunggu` and enqueues it as a
+        `klaim_lokasi` verification item. A project may have at most one
+        accepted claim.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLocationClaimRequest'
+      responses:
+        '201':
+          description: Claim created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationClaimResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /projects/{project_id}/verification-items:
+    get:
+      tags: [Verification]
+      operationId: listProjectVerificationItems
+      summary: Return a project's verification queue
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/VerificationStatusFilter'
+        - $ref: '#/components/parameters/VerificationItemTypeFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Verification items for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationItemListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /verification-items:
+    get:
+      tags: [Verification]
+      operationId: listVerificationItems
+      summary: List the unified verification queue
+      description: |
+        Returns pending and resolved items from all projects. Default ordering
+        is `created_at` ascending so the oldest pending item is handled first.
+        Items authored by deactivated accounts (`users.is_active = false`) are
+        excluded, as are items whose report was withdrawn.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationStatusFilter'
+        - $ref: '#/components/parameters/VerificationItemTypeFilter'
+        - $ref: '#/components/parameters/ProjectIdFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Verification queue.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationItemListResponse'
+        '304':
+          description: Not modified.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /verification-items/{item_id}:
+    get:
+      tags: [Verification]
+      operationId: getVerificationItem
+      summary: Return one verification item
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationItemId'
+      responses:
+        '200':
+          description: Verification item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationItemResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /verification-items/{item_id}/votes:
+    get:
+      tags: [Verification]
+      operationId: listVerificationVotes
+      summary: List votes for a verification item
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationItemId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Votes for the item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Verification]
+      operationId: castVote
+      summary: Cast one vote on a verification item
+      description: |
+        One vote per citizen per item. The author of the underlying report or
+        claim cannot vote. Votes are immutable and cannot be cast after the
+        item is resolved. Reaching `target_votes` agree votes resolves the item
+        as `terverifikasi`; for a claim the accepted status is `diterima`.
+      parameters:
+        - $ref: '#/components/parameters/VerificationItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVoteRequest'
+      responses:
+        '201':
+          description: Vote recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /reports/{report_id}:
+    get:
+      tags: [Reports]
+      operationId: getReport
+      summary: Return one report
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '200':
+          description: Report detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      tags: [Reports]
+      operationId: updateReport
+      summary: Update a draft report
+      description: Author-only and draft-only. Submitted reports return `409`.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReportRequest'
+      responses:
+        '200':
+          description: Draft updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Reports]
+      operationId: deleteReport
+      summary: Delete a report before a consensus verdict
+      description: |
+        Author-only. Allowed while the report is `draft` or `menunggu`.
+        A draft is hard-deleted. A pending report is soft-deleted: it is
+        removed from public lists and the verification queue, and its
+        verification item is closed, while media, votes, and the audit trail
+        are retained. Reports in `terverifikasi`, `ditolak`, or `selesai`
+        return `409`.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '204':
+          description: Report deleted or withdrawn.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /reports/{report_id}/submit:
+    post:
+      tags: [Reports]
+      operationId: submitReport
+      summary: Submit a draft report
+      description: |
+        Transitions `draft` to `menunggu`, sets `submitted_at`, and creates
+        exactly one verification item with `item_type = laporan_kondisi`.
+        Requires at least one photo, a category, an address, and a narrative
+        between 20 and 500 characters.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '200':
+          description: Report submitted and enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /reports/{report_id}/media:
+    get:
+      tags: [Media]
+      operationId: listReportMedia
+      summary: List photos attached to a report
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '200':
+          description: Report photos ordered by `sort_order`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportMediaListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Media]
+      operationId: uploadReportMedia
+      summary: Upload a report photo
+      description: |
+        Author-only. Maximum 4 photos per report and 5 MB per file. The server
+        extracts EXIF metadata; client-supplied EXIF values are ignored.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MediaUploadRequest'
+      responses:
+        '201':
+          description: Photo stored and media row created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportMediaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /reports/{report_id}/media/{media_id}:
+    delete:
+      tags: [Media]
+      operationId: deleteReportMedia
+      summary: Remove a report photo
+      description: Author-only, and only while the report is a draft.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '204':
+          description: Photo removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /reports/{report_id}/evidences:
+    get:
+      tags: [Evidence]
+      operationId: listReportEvidences
+      summary: List additional evidence for a report
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Evidence entries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Evidence]
+      operationId: createEvidence
+      summary: Add evidence to a report
+      description: |
+        Any authenticated citizen may add evidence. Evidence does not create a
+        verification item and is not a standalone report.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEvidenceRequest'
+      responses:
+        '201':
+          description: Evidence created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /evidences/{evidence_id}:
+    get:
+      tags: [Evidence]
+      operationId: getEvidence
+      summary: Return one evidence entry
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Evidence detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /evidences/{evidence_id}/media:
+    get:
+      tags: [Media]
+      operationId: listEvidenceMedia
+      summary: List photos attached to evidence
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Evidence photos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceMediaListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Media]
+      operationId: uploadEvidenceMedia
+      summary: Upload an evidence photo
+      description: Maximum 8 photos per evidence entry and 5 MB per file.
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MediaUploadRequest'
+      responses:
+        '201':
+          description: Photo stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceMediaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /evidences/{evidence_id}/media/{media_id}:
+    delete:
+      tags: [Media]
+      operationId: deleteEvidenceMedia
+      summary: Remove an evidence photo
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '204':
+          description: Photo removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /location-claims/{claim_id}:
+    get:
+      tags: [Location Claims]
+      operationId: getLocationClaim
+      summary: Return one location claim
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+      responses:
+        '200':
+          description: Location claim detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationClaimResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /location-claims/{claim_id}/media:
+    get:
+      tags: [Media]
+      operationId: listClaimMedia
+      summary: List photos attached to a location claim
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+      responses:
+        '200':
+          description: Claim photos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimMediaListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Media]
+      operationId: uploadClaimMedia
+      summary: Upload the claim evidence photo
+      description: A claim may have at most one evidence photo.
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MediaUploadRequest'
+      responses:
+        '201':
+          description: Photo stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimMediaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ContentWriteForbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /location-claims/{claim_id}/media/{media_id}:
+    delete:
+      tags: [Media]
+      operationId: deleteClaimMedia
+      summary: Remove a claim photo
+      description: Allowed only while the claim is still `menunggu`.
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '204':
+          description: Photo removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT issued by `POST /auth/login`. Default lifetime is 3600 seconds.
+        Send as `Authorization: Bearer <token>`.
+
+  headers:
+    ETag:
+      description: Entity tag for conditional requests.
+      schema:
+        type: string
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Values above 100 are clamped to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      description: |
+        Hybrid search over `title`, `satker`, `category`, and `city`.
+        PostgreSQL full-text search (`indonesian`) is the primary path and is
+        ranked with `ts_rank_cd`; `pg_trgm` similarity is the fallback for
+        partial terms and typos. Matching is case-insensitive and
+        accent-insensitive. Values shorter than 2 characters after trimming
+        return `422`.
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 100
+    CategoryFilter:
+      name: category
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 100
+    CityFilter:
+      name: city
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 100
+    ProjectStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ProjectStatus'
+    ReportStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ReportStatus'
+    ClaimStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ClaimStatus'
+    VerificationStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/VerificationStatus'
+    VerificationItemTypeFilter:
+      name: item_type
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/VerificationItemType'
+    ReportCategoryFilter:
+      name: category
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/ReportCategory'
+    PrecisionLevelFilter:
+      name: precision_level
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/PrecisionLevel'
+    YearFilter:
+      name: year
+      in: query
+      required: false
+      description: Fiscal year, matched through `project_years`.
+      schema:
+        type: integer
+        minimum: 2000
+        maximum: 2100
+    IsOutsideDkiFilter:
+      name: is_outside_dki
+      in: query
+      required: false
+      schema:
+        type: boolean
+    IsRetenderFilter:
+      name: is_retender
+      in: query
+      required: false
+      schema:
+        type: boolean
+    ProjectSort:
+      name: sort
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [title, -created_at, pagu_amount, -pagu_amount]
+        default: -created_at
+    BBox:
+      name: bbox
+      in: query
+      required: true
+      description: Bounding box as `minLng,minLat,maxLng,maxLat`.
+      schema:
+        type: string
+        pattern: '^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$'
+      example: '106.6,-6.4,107.0,-6.1'
+    AuthorFilter:
+      name: author_user_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    ProjectIdFilter:
+      name: project_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReportId:
+      name: report_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ClaimId:
+      name: claim_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EvidenceId:
+      name: evidence_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VerificationItemId:
+      name: item_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MediaId:
+      name: media_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing, expired, or invalid token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: token_expired
+              message: The access token has expired.
+    Forbidden:
+      description: The caller is not allowed to perform this action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: self_vote_forbidden
+              message: Authors cannot vote on their own submission.
+    ContentWriteForbidden:
+      description: |
+        The caller is authenticated but is not allowed to write this content.
+        Possible codes: `email_not_verified` (address not yet confirmed),
+        `account_inactive` (deactivated account), and `self_vote_forbidden`
+        (author voting on their own submission).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            emailNotVerified:
+              summary: Email address not verified
+              value:
+                error:
+                  code: email_not_verified
+                  message: Verify your email address before creating content.
+            accountInactive:
+              summary: Account deactivated
+              value:
+                error:
+                  code: account_inactive
+                  message: This account has been deactivated.
+            selfVoteForbidden:
+              summary: Author voting on their own item
+              value:
+                error:
+                  code: self_vote_forbidden
+                  message: Authors cannot vote on their own submission.
+    NotFound:
+      description: The resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: not_found
+              message: The requested resource was not found.
+    Conflict:
+      description: A state or uniqueness conflict occurred.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: already_voted
+              message: You have already voted on this item.
+    ValidationFailed:
+      description: One or more fields are invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: validation_failed
+              message: One or more fields are invalid.
+              details:
+                - field: narrative
+                  message: Must be between 20 and 500 characters.
+    PayloadTooLarge:
+      description: The uploaded file exceeds 5 MB.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: file_too_large
+              message: Files must be 5 MB or smaller.
+    UnsupportedMediaType:
+      description: The uploaded file is not an accepted image type.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: unsupported_media_type
+              message: Only image/jpeg, image/png, and image/webp are accepted.
+    TooManyRequests:
+      description: Request rate exceeded.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: rate_limited
+              message: Too many requests. Try again later.
+    ServerError:
+      description: Unhandled server fault.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: internal_error
+              message: An unexpected error occurred.
+
+  schemas:
+    # ---------------------------------------------------------------- Enums
+    PrecisionLevel:
+      type: string
+      enum:
+        - kabupaten/kota
+        - kecamatan
+        - desa/kelurahan
+        - alamat/ruas
+        - titik
+    LocationSource:
+      type: string
+      enum: [SPSE, warga]
+    ReportCategory:
+      type: string
+      enum:
+        - belum_mulai
+        - lambat_mangkrak
+        - fisik_rusak
+        - papan_tidak_ada
+        - selesai
+    ReportStatus:
+      type: string
+      enum: [draft, menunggu, terverifikasi, ditolak, selesai]
+    ProjectStatus:
+      type: string
+      enum: [menunggu, terverifikasi, ditolak, selesai]
+    ClaimStatus:
+      type: string
+      enum: [menunggu, diterima, ditolak]
+    VerificationStatus:
+      type: string
+      enum: [menunggu, terverifikasi, ditolak]
+    VerificationItemType:
+      type: string
+      enum: [laporan_kondisi, klaim_lokasi]
+    VerificationItemStatus:
+      type: string
+      enum: [menunggu, terverifikasi, ditolak, diterima]
+    VoteChoice:
+      type: string
+      enum: [setuju, tidak_setuju]
+    TenderStatus:
+      type: string
+      enum: [gagal, aktif, selesai, dibatalkan]
+    RiskLevel:
+      type: string
+      enum: [warning, info]
+    ExifStatus:
+      type: string
+      enum: [valid, invalid, missing]
+
+    # --------------------------------------------------------------- Common
+    Money:
+      type: string
+      description: Exact decimal amount with two fractional digits.
+      pattern: '^[0-9]+(\.[0-9]{2})?$'
+      example: '516020000000.00'
+    Meta:
+      type: object
+      required: [page, limit, total, has_next]
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 137
+        has_next:
+          type: boolean
+          example: true
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: validation_failed
+            message:
+              type: string
+              example: One or more fields are invalid.
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                    example: narrative
+                  message:
+                    type: string
+                    example: Must be between 20 and 500 characters.
+
+    # ---------------------------------------------------------------- Users
+    RegisterRequest:
+      type: object
+      required: [display_name, email, password]
+      properties:
+        display_name:
+          type: string
+          minLength: 3
+          maxLength: 24
+          pattern: '^[A-Za-z0-9_]{3,24}$'
+          example: warga_jakarta
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: warga@example.com
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          format: password
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: warga@example.com
+        password:
+          type: string
+          format: password
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Single-use token from the verification email, valid for 24 hours.
+    UpdateProfileRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+          minLength: 3
+          maxLength: 24
+          pattern: '^[A-Za-z0-9_]{3,24}$'
+          example: warga_baru
+    AuthUser:
+      type: object
+      required: [id, display_name, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+    AuthToken:
+      type: object
+      required: [access_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          example: 3600
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    UserPublic:
+      type: object
+      required: [id, display_name, is_active, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    UserPrivate:
+      allOf:
+        - $ref: '#/components/schemas/UserPublic'
+        - type: object
+          required: [email, email_verified_at, updated_at]
+          properties:
+            email:
+              type: string
+              format: email
+            email_verified_at:
+              type: string
+              format: date-time
+              nullable: true
+            updated_at:
+              type: string
+              format: date-time
+
+    # ------------------------------------------------------------- Projects
+    ProjectDerived:
+      type: object
+      properties:
+        pagu_compact:
+          type: string
+          example: Rp516,02 miliar
+        pagu_full:
+          type: string
+          example: Rp516.020.000.000
+        hps_compact:
+          type: string
+        hps_full:
+          type: string
+        kontrak_compact:
+          type: string
+          nullable: true
+        kontrak_full:
+          type: string
+          nullable: true
+        precision_badge:
+          type: string
+          nullable: true
+    ProjectSummary:
+      type: object
+      required:
+        - id
+        - title
+        - spse_code
+        - satker
+        - category
+        - city
+        - pagu_amount
+        - hps_amount
+        - contract_available
+        - years
+        - precision_level
+        - location_source
+        - is_canonical_claimed
+        - is_outside_dki
+        - is_retender
+        - reports_count
+        - verifications_count
+        - status
+        - derived
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        spse_code:
+          type: string
+        satker:
+          type: string
+        category:
+          type: string
+        city:
+          type: string
+        pagu_amount:
+          $ref: '#/components/schemas/Money'
+        hps_amount:
+          $ref: '#/components/schemas/Money'
+        contract_amount:
+          type: string
+          description: Exact decimal amount, or null when the value is unpublished.
+          pattern: '^[0-9]+(\.[0-9]{2})?$'
+          nullable: true
+          example: '516020000000.00'
+        contract_available:
+          type: boolean
+        years:
+          type: array
+          items:
+            type: integer
+        precision_level:
+          $ref: '#/components/schemas/PrecisionLevel'
+        location_source:
+          $ref: '#/components/schemas/LocationSource'
+        is_canonical_claimed:
+          type: boolean
+        is_outside_dki:
+          type: boolean
+        is_retender:
+          type: boolean
+        reports_count:
+          type: integer
+        verifications_count:
+          type: integer
+        status:
+          $ref: '#/components/schemas/ProjectStatus'
+        derived:
+          $ref: '#/components/schemas/ProjectDerived'
+    ProjectLocationSummary:
+      type: object
+      required: [address, city, precision_level, source, is_canonical_claimed]
+      properties:
+        address:
+          type: string
+        city:
+          type: string
+        precision_level:
+          $ref: '#/components/schemas/PrecisionLevel'
+        source:
+          $ref: '#/components/schemas/LocationSource'
+        is_canonical_claimed:
+          type: boolean
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+    ProjectDetail:
+      allOf:
+        - $ref: '#/components/schemas/ProjectSummary'
+        - type: object
+          required: [location, tenders, sub_locations, risk_flags]
+          properties:
+            contract_note:
+              type: string
+              nullable: true
+            location:
+              $ref: '#/components/schemas/ProjectLocationSummary'
+            precision_resolution_note:
+              type: string
+              nullable: true
+            source_note:
+              type: string
+              nullable: true
+            tenders:
+              type: array
+              items:
+                $ref: '#/components/schemas/Tender'
+            sub_locations:
+              type: array
+              items:
+                $ref: '#/components/schemas/SubLocation'
+            risk_flags:
+              type: array
+              items:
+                $ref: '#/components/schemas/RiskFlag'
+    Tender:
+      type: object
+      required: [id, spse_code, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        spse_code:
+          type: string
+        status:
+          $ref: '#/components/schemas/TenderStatus'
+        note:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    SubLocation:
+      type: object
+      required: [id, name, address, city, verified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        verified:
+          type: boolean
+    RiskFlag:
+      type: object
+      required: [code, label, level, description]
+      properties:
+        code:
+          type: string
+          example: CONTRACT_MISSING
+        label:
+          type: string
+        level:
+          $ref: '#/components/schemas/RiskLevel'
+        description:
+          type: string
+    ProjectMapPin:
+      type: object
+      required: [id, title, precision_level, status, category]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        precision_level:
+          $ref: '#/components/schemas/PrecisionLevel'
+        status:
+          $ref: '#/components/schemas/ProjectStatus'
+        category:
+          type: string
+
+    # -------------------------------------------------------------- Location
+    ProjectLocation:
+      type: object
+      required:
+        - id
+        - address
+        - city
+        - precision_level
+        - source
+        - is_verified
+        - is_primary
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        address:
+          type: string
+        city:
+          type: string
+        precision_level:
+          $ref: '#/components/schemas/PrecisionLevel'
+        source:
+          $ref: '#/components/schemas/LocationSource'
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        is_verified:
+          type: boolean
+        is_primary:
+          type: boolean
+    ProjectLocations:
+      type: object
+      required: [primary_location_id, locations]
+      properties:
+        primary_location_id:
+          type: string
+          format: uuid
+          nullable: true
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectLocation'
+
+    # --------------------------------------------------------------- Reports
+    ReportMedia:
+      type: object
+      required:
+        - id
+        - report_id
+        - file_url
+        - media_type
+        - sort_order
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        report_id:
+          type: string
+          format: uuid
+        file_url:
+          type: string
+          format: uri
+        media_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        exif_latitude:
+          type: number
+          format: double
+          nullable: true
+        exif_longitude:
+          type: number
+          format: double
+          nullable: true
+        exif_taken_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_geotag_valid:
+          type: boolean
+          nullable: true
+        sort_order:
+          type: integer
+          minimum: 0
+          maximum: 3
+        created_at:
+          type: string
+          format: date-time
+    Report:
+      type: object
+      required:
+        - id
+        - project_id
+        - user_id
+        - author_display_name
+        - narrative
+        - exif_status
+        - status
+        - created_at
+        - updated_at
+        - media
+        - evidences_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        author_display_name:
+          type: string
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        narrative:
+          type: string
+          maxLength: 500
+        proposed_address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        distance_from_project_m:
+          type: number
+          format: double
+          nullable: true
+        exif_status:
+          $ref: '#/components/schemas/ExifStatus'
+        exif_notice:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportMedia'
+        evidences_count:
+          type: integer
+    CreateReportRequest:
+      type: object
+      required: [narrative]
+      properties:
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        narrative:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: Papan proyek sudah tidak ada dan bekas cor beton retak di beberapa titik.
+        proposed_address:
+          type: string
+          maxLength: 500
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          nullable: true
+        exif_status:
+          $ref: '#/components/schemas/ExifStatus'
+        exif_notice:
+          type: string
+          nullable: true
+        submit:
+          type: boolean
+          default: false
+          description: When true, the server submits and enqueues the report.
+    UpdateReportRequest:
+      type: object
+      properties:
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        narrative:
+          type: string
+          minLength: 1
+          maxLength: 500
+        proposed_address:
+          type: string
+          maxLength: 500
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          nullable: true
+
+    # --------------------------------------------------------------- Claims
+    LocationClaim:
+      type: object
+      required:
+        - id
+        - project_id
+        - user_id
+        - author_display_name
+        - proposed_address
+        - kecamatan
+        - proposed_precision
+        - exif_status
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        author_display_name:
+          type: string
+        proposed_address:
+          type: string
+        address_line:
+          type: string
+          nullable: true
+        kelurahan:
+          type: string
+          nullable: true
+        kecamatan:
+          type: string
+        city:
+          type: string
+          nullable: true
+        landmark:
+          type: string
+          nullable: true
+        proposed_precision:
+          $ref: '#/components/schemas/PrecisionLevel'
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        distance_from_project_m:
+          type: number
+          format: double
+          nullable: true
+        exif_status:
+          $ref: '#/components/schemas/ExifStatus'
+        exif_notice:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ClaimStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+    CreateLocationClaimRequest:
+      type: object
+      required: [proposed_address, kecamatan, proposed_precision]
+      properties:
+        proposed_address:
+          type: string
+          maxLength: 500
+        address_line:
+          type: string
+          maxLength: 500
+          nullable: true
+        kelurahan:
+          type: string
+          maxLength: 100
+          nullable: true
+        kecamatan:
+          type: string
+          maxLength: 100
+        city:
+          type: string
+          maxLength: 100
+          nullable: true
+        landmark:
+          type: string
+          maxLength: 255
+          nullable: true
+        proposed_precision:
+          $ref: '#/components/schemas/PrecisionLevel'
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          nullable: true
+
+    # ---------------------------------------------------------- Verification
+    VerificationItem:
+      type: object
+      required:
+        - id
+        - project_id
+        - project_title
+        - spse_code
+        - satker
+        - pagu_amount
+        - item_type
+        - author_display_name
+        - narrative
+        - votes_agree
+        - votes_disagree
+        - target_votes
+        - voters
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        project_title:
+          type: string
+        spse_code:
+          type: string
+        satker:
+          type: string
+        pagu_amount:
+          $ref: '#/components/schemas/Money'
+        item_type:
+          $ref: '#/components/schemas/VerificationItemType'
+        report_id:
+          type: string
+          format: uuid
+          nullable: true
+        claim_id:
+          type: string
+          format: uuid
+          nullable: true
+        author_display_name:
+          type: string
+        category_label:
+          type: string
+          nullable: true
+        narrative:
+          type: string
+        proposed_address:
+          type: string
+          nullable: true
+        proposed_precision:
+          type: string
+          enum:
+            - kabupaten/kota
+            - kecamatan
+            - desa/kelurahan
+            - alamat/ruas
+            - titik
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        distance_from_project_m:
+          type: number
+          format: double
+          nullable: true
+        exif_status:
+          $ref: '#/components/schemas/ExifStatus'
+        exif_notice:
+          type: string
+          nullable: true
+        photo_url:
+          type: string
+          format: uri
+          nullable: true
+        votes_agree:
+          type: integer
+          minimum: 0
+        votes_disagree:
+          type: integer
+          minimum: 0
+        target_votes:
+          type: integer
+          minimum: 1
+          example: 3
+        voters:
+          type: array
+          description: Display names of citizens who voted.
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/VerificationItemStatus'
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    Vote:
+      type: object
+      required: [id, verification_item_id, user_id, choice, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        verification_item_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        choice:
+          $ref: '#/components/schemas/VoteChoice'
+        created_at:
+          type: string
+          format: date-time
+    CreateVoteRequest:
+      type: object
+      required: [choice]
+      properties:
+        choice:
+          $ref: '#/components/schemas/VoteChoice'
+    VoteResolutionStatus:
+      type: string
+      description: |
+        Current state of the voted item. A report resolves to `terverifikasi`
+        or `ditolak`; a location claim resolves to `diterima` or `ditolak`.
+      enum: [menunggu, terverifikasi, ditolak, diterima]
+    VoteResolution:
+      type: object
+      description: |
+        Current outcome of the verification item, not a snapshot from the
+        moment of voting. Always present, including while the item is still
+        `menunggu`.
+      required: [status, votes_agree, votes_disagree, target_votes, resolved_at]
+      properties:
+        status:
+          $ref: '#/components/schemas/VoteResolutionStatus'
+        votes_agree:
+          type: integer
+          minimum: 0
+        votes_disagree:
+          type: integer
+          minimum: 0
+        target_votes:
+          type: integer
+          minimum: 1
+          example: 3
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    MyVote:
+      type: object
+      description: |
+        A vote plus the current outcome of the voted item. The vote itself is
+        immutable; `resolution` changes as verification progresses. The API
+        does not return a "vote won" flag; clients derive it from `choice` and
+        `resolution.status`.
+      required:
+        - id
+        - verification_item_id
+        - project_id
+        - project_title
+        - item_type
+        - author_display_name
+        - choice
+        - created_at
+        - resolution
+      properties:
+        id:
+          type: string
+          format: uuid
+        verification_item_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        project_title:
+          type: string
+        item_type:
+          $ref: '#/components/schemas/VerificationItemType'
+        author_display_name:
+          type: string
+        choice:
+          $ref: '#/components/schemas/VoteChoice'
+        created_at:
+          type: string
+          format: date-time
+        resolution:
+          $ref: '#/components/schemas/VoteResolution'
+
+    # -------------------------------------------------------------- Evidence
+    EvidenceMedia:
+      type: object
+      required: [id, evidence_id, file_url, media_type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        evidence_id:
+          type: string
+          format: uuid
+        file_url:
+          type: string
+          format: uri
+        media_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        created_at:
+          type: string
+          format: date-time
+    Evidence:
+      type: object
+      required:
+        - id
+        - report_id
+        - user_id
+        - author_display_name
+        - description
+        - created_at
+        - updated_at
+        - media
+      properties:
+        id:
+          type: string
+          format: uuid
+        report_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        author_display_name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceMedia'
+    CreateEvidenceRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    # ----------------------------------------------------------- Claim media
+    ClaimMedia:
+      type: object
+      required: [id, claim_id, file_url, media_type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        claim_id:
+          type: string
+          format: uuid
+        file_url:
+          type: string
+          format: uri
+        media_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        exif_latitude:
+          type: number
+          format: double
+          nullable: true
+        exif_longitude:
+          type: number
+          format: double
+          nullable: true
+        exif_taken_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_geotag_valid:
+          type: boolean
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # ------------------------------------------------------------ Multipart
+    MediaUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+        sort_order:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: Only used for report photos.
+
+    # ------------------------------------------------------------- Envelopes
+    UserPublicResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UserPublic'
+    UserPrivateResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UserPrivate'
+    AuthTokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AuthToken'
+    ProjectListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectSummary'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    ProjectDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ProjectDetail'
+    ProjectMapPinListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMapPin'
+    TenderListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tender'
+    ProjectLocationsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ProjectLocations'
+    RiskFlagListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskFlag'
+    ReportResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Report'
+    ReportListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Report'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    ReportMediaResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ReportMedia'
+    ReportMediaListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportMedia'
+    LocationClaimResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/LocationClaim'
+    LocationClaimListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocationClaim'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    ClaimMediaResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ClaimMedia'
+    ClaimMediaListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimMedia'
+    VerificationItemResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/VerificationItem'
+    VerificationItemListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationItem'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    VoteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Vote'
+    VoteListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vote'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    MyVoteListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyVote'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    EvidenceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Evidence'
+    EvidenceListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+        meta:
+          $ref: '#/components/schemas/Meta'
+    EvidenceMediaResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/EvidenceMedia'
+    EvidenceMediaListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceMedia'
+
+    # ---------------------------------------------------------------- Health
+    HealthResponse:
+      type: object
+      required: [status, database, storage, version, uptime_seconds]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [ok, down]
+        storage:
+          type: string
+          enum: [ok, down]
+        version:
+          type: string
+          example: 1.0.0
+        uptime_seconds:
+          type: integer
+          example: 3600
