@@ -70,7 +70,7 @@ feat(api): add project map pins endpoint
 
 ## Commit Message Guidelines
 
-See [`docs/commit-guidelines.md`](docs/commit-guidelines.md) for the full specification.
+See [`docs/COMMIT_GUIDELINES.md`](docs/COMMIT_GUIDELINES.md) for the full specification.
 
 Quick reference:
 
