@@ -1,8 +1,16 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Layers, MapPinOff, Search, SearchX, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, Layers, MapPinOff, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { WARTA_PROJECTS } from '../../data/wartaData';
 import type { PrecisionLevel, ReportStatus } from '../../types/warta';
+import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import JakartaSvgMap from '../map/JakartaSvgMap';
 import MapFloatingSheet from '../map/MapFloatingSheet';
 import ProjectCard from '../project/ProjectCard';
@@ -11,6 +19,14 @@ const YEARS = ['2022', '2023', '2024', '2025', '2026', '2027'];
 const CATEGORIES = [...new Set(WARTA_PROJECTS.map((p) => p.category))];
 const PRECISIONS: PrecisionLevel[] = ['kabupaten/kota', 'kecamatan', 'desa/kelurahan', 'alamat/ruas', 'titik'];
 const STATUSES: ReportStatus[] = ['menunggu', 'terverifikasi', 'ditolak', 'selesai'];
+
+const STATUS_LABEL: Record<ReportStatus, string> = {
+  draft: 'Draft',
+  menunggu: 'Menunggu',
+  terverifikasi: 'Terverifikasi',
+  ditolak: 'Ditolak',
+  selesai: 'Selesai',
+};
 
 export default function MapExplorerView() {
   const { mapCondition, setMapCondition, compactRupiah, toggleRupiah, selectedProjectId, selectProject, navigate } = useWarta();
@@ -48,7 +64,14 @@ export default function MapExplorerView() {
     if (forcedEmpty) setMapCondition('normal');
   };
 
-  const sel = 'rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-action-border';
+  /* Chip kecil yang menampilkan filter aktif agar mudah dihapus satu per satu */
+  const chips: { label: string; onRemove: () => void }[] = [
+    ...(category ? [{ label: category, onRemove: () => setCategory('') }] : []),
+    ...(status ? [{ label: STATUS_LABEL[status as ReportStatus], onRemove: () => setStatus('') }] : []),
+    ...(year ? [{ label: `Tahun ${year}`, onRemove: () => setYear('') }] : []),
+    ...(precision ? [{ label: precision, onRemove: () => setPrecision('') }] : []),
+    ...(hasReports ? [{ label: 'Punya Laporan', onRemove: () => setHasReports(false) }] : []),
+  ];
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col-reverse gap-4 p-4 lg:flex-row">
@@ -61,47 +84,155 @@ export default function MapExplorerView() {
           </div>
         )}
 
+        {/* Kotak pencarian + tombol filter */}
         <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex gap-2">
-            <label className="flex flex-1 items-center gap-2 rounded-xl border border-slate-300 px-3 focus-within:ring-2 focus-within:ring-action-border">
-              <Search className="size-4 text-slate-400" />
-              <input id="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nama paket, kode tender, atau lokasi…" className="w-full py-2 text-sm outline-none" />
+            <label className="flex flex-1 items-center gap-2 rounded-xl border border-slate-300 px-3 transition-colors focus-within:border-action-border focus-within:ring-2 focus-within:ring-action-border/30">
+              <Search className="size-4 shrink-0 text-slate-400" />
+              <input
+                id="search-input"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Cari nama paket, kode tender, atau lokasi…"
+                className="w-full py-2 text-sm outline-none placeholder:text-slate-400"
+              />
+              {q && (
+                <button onClick={() => setQ('')} aria-label="Hapus pencarian" className="text-slate-400 hover:text-slate-600">
+                  <X className="size-3.5" />
+                </button>
+              )}
             </label>
-            <button id="toggle-filters" onClick={() => setShowFilters((v) => !v)} className="relative flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-50" aria-expanded={showFilters}>
-              <SlidersHorizontal className="size-4" /><span className="hidden sm:inline">Filter</span>
-              {activeFilters > 0 && <span className="grid size-5 place-items-center rounded-full bg-brand text-[11px] text-white">{activeFilters}</span>}
+            <button
+              id="toggle-filters"
+              onClick={() => setShowFilters((v) => !v)}
+              className={cn(
+                'relative flex items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold transition',
+                showFilters
+                  ? 'border-action-border bg-action-bg text-action-border'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-50',
+              )}
+              aria-expanded={showFilters}
+            >
+              <SlidersHorizontal className="size-4" />
+              <span className="hidden sm:inline">Filter</span>
+              {activeFilters > 0 && (
+                <span className="grid size-5 place-items-center rounded-full bg-brand text-[11px] text-white">
+                  {activeFilters}
+                </span>
+              )}
             </button>
           </div>
 
+          {/* Panel filter — dropdown Radix kustom */}
           {showFilters && (
-            <div className="mt-3 grid animate-pop grid-cols-2 gap-2 sm:grid-cols-4">
-              <select id="filter-category" value={category} onChange={(e) => setCategory(e.target.value)} className={sel} aria-label="Kategori">
-                <option value="">Semua kategori</option>
-                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-              </select>
-              <select id="filter-status" value={status} onChange={(e) => setStatus(e.target.value)} className={sel} aria-label="Status">
-                <option value="">Semua status</option>
-                {STATUSES.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
-              </select>
-              <select id="filter-year" value={year} onChange={(e) => setYear(e.target.value)} className={sel} aria-label="Tahun anggaran">
-                <option value="">Semua tahun</option>
-                {YEARS.map((y) => <option key={y}>{y}</option>)}
-              </select>
-              <select id="filter-precision" value={precision} onChange={(e) => setPrecision(e.target.value)} className={sel} aria-label="Presisi lokasi">
-                <option value="">Semua presisi</option>
-                {PRECISIONS.map((p) => <option key={p}>{p}</option>)}
-              </select>
-              <label className="col-span-2 flex items-center gap-2 text-sm">
-                <input id="filter-has-reports" type="checkbox" checked={hasReports} onChange={(e) => setHasReports(e.target.checked)} className="size-4 accent-brand" />
-                Punya Laporan Warga
-              </label>
-              <button id="filter-reset" onClick={resetFilters} className="col-span-2 text-right text-sm font-semibold text-action-border hover:underline sm:col-span-2">Reset filter</button>
+            <div className="mt-3 animate-pop space-y-3 border-t border-slate-100 pt-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {/* Kategori */}
+                <Select value={category || '__all__'} onValueChange={(v) => setCategory(v === '__all__' ? '' : v)}>
+                  <SelectTrigger id="filter-category" aria-label="Kategori">
+                    <SelectValue placeholder="Semua kategori" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Semua kategori</SelectItem>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Status */}
+                <Select value={status || '__all__'} onValueChange={(v) => setStatus(v === '__all__' ? '' : v)}>
+                  <SelectTrigger id="filter-status" aria-label="Status">
+                    <SelectValue placeholder="Semua status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Semua status</SelectItem>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Tahun */}
+                <Select value={year || '__all__'} onValueChange={(v) => setYear(v === '__all__' ? '' : v)}>
+                  <SelectTrigger id="filter-year" aria-label="Tahun anggaran">
+                    <SelectValue placeholder="Semua tahun" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Semua tahun</SelectItem>
+                    {YEARS.map((y) => (
+                      <SelectItem key={y} value={y}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Presisi */}
+                <Select value={precision || '__all__'} onValueChange={(v) => setPrecision(v === '__all__' ? '' : v)}>
+                  <SelectTrigger id="filter-precision" aria-label="Presisi lokasi">
+                    <SelectValue placeholder="Semua presisi" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Semua presisi</SelectItem>
+                    {PRECISIONS.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Baris bawah: checkbox + reset */}
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-700">
+                  <input
+                    id="filter-has-reports"
+                    type="checkbox"
+                    checked={hasReports}
+                    onChange={(e) => setHasReports(e.target.checked)}
+                    className="size-4 accent-brand"
+                  />
+                  Punya Laporan Warga
+                </label>
+                {activeFilters > 0 && (
+                  <button
+                    id="filter-reset"
+                    onClick={resetFilters}
+                    className="text-sm font-semibold text-action-border underline-offset-2 hover:underline"
+                  >
+                    Reset semua
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+          {/* Chip filter aktif */}
+          {chips.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {chips.map((chip) => (
+                <span
+                  key={chip.label}
+                  className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-xs font-semibold text-brand"
+                >
+                  {chip.label}
+                  <button
+                    onClick={chip.onRemove}
+                    aria-label={`Hapus filter ${chip.label}`}
+                    className="ml-0.5 rounded-full text-brand/60 hover:text-brand"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs text-slate-500">
             <span>{loading ? 'Memuat paket…' : `${list.length} paket ditampilkan`}</span>
-            <button id="toggle-rupiah" onClick={toggleRupiah} className="rounded-full border border-slate-300 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50">
+            <button
+              id="toggle-rupiah"
+              onClick={toggleRupiah}
+              className="rounded-full border border-slate-300 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50"
+            >
               Format: {compactRupiah ? 'Ringkas' : 'Lengkap'}
             </button>
           </div>
