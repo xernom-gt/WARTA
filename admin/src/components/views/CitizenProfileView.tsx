@@ -81,11 +81,11 @@ function ItemDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal
     >
-      <div className="max-h-[90vh] w-full max-w-xl animate-slide-up overflow-y-auto rounded-t-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+      <div className="max-h-[90vh] w-full max-w-lg animate-pop overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
         {/* Header Modal */}
         <div className="mb-4 flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
           <div className="min-w-0">
