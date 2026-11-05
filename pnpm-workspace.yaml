@@ -1,0 +1,8 @@
+packages:
+  - admin
+  - landing
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - lightningcss
+  - rolldown
