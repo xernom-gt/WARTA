@@ -1,0 +1,31 @@
+# WARTA — Start the local stack
+#
+#   docker compose up -d db     # PostgreSQL 16 on localhost:5432
+#
+# The API (Go) runs separately from ./api with `go run .`; see README.md §3.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: warta-db
+    environment:
+      POSTGRES_USER: warta
+      POSTGRES_PASSWORD: warta
+      POSTGRES_DB: warta
+      # Docker's healthcheck uses this to call pg_isready without a socket
+      # password prompt; it is a dev-only shortcut, not a prod credential.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # Host 5433 -> container 5432, so the compose database never fights the
+      # host's own PostgreSQL on 5432. Point DATABASE_URL at 5433.
+      - "5433:5432"
+    volumes:
+      - warta-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U warta -d warta"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  warta-db-data:
