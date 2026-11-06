@@ -3,7 +3,9 @@ import type {
   ActiveScreen,
   CitizenClaim,
   CitizenReport,
+  EvidenceItem,
   MapCondition,
+  UserProfile,
   UserRole,
   VerificationItem,
   VoteChoice,
@@ -19,10 +21,13 @@ import {
 
 interface WartaState {
   currentUser: string | null;
+  userProfile: UserProfile | null;
   role: UserRole;
   mapCondition: MapCondition;
   activeScreen: ActiveScreen;
   selectedProjectId: string | null;
+  selectedReportId: string | null;
+  editingDraftId: string | null;
   compactRupiah: boolean;
   queue: VerificationItem[];
   myReports: CitizenReport[];
@@ -34,25 +39,47 @@ interface WartaState {
 interface WartaContextValue extends WartaState {
   setRole: (r: UserRole) => void;
   setMapCondition: (c: MapCondition) => void;
-  navigate: (s: ActiveScreen, projectId?: string) => void;
+  navigate: (s: ActiveScreen, projectId?: string, reportId?: string) => void;
   selectProject: (id: string | null) => void;
+  selectReport: (id: string | null) => void;
+  startEditDraft: (reportId: string) => void;
+  clearEditDraft: () => void;
   toggleRupiah: () => void;
-  login: (displayName: string) => void;
+  login: (displayName: string, email?: string) => void;
+  register: (displayName: string, email: string) => void;
+  updateDisplayName: (displayName: string) => void;
+  verifyCurrentEmail: () => void;
   logout: () => void;
   setLoginOpen: (o: boolean) => void;
   vote: (itemId: string, choice: VoteChoice) => void;
   canVote: (item: VerificationItem) => { allowed: boolean; reason?: string };
   addReport: (r: CitizenReport, item?: VerificationItem) => void;
+  updateDraftReport: (reportId: string, updated: Partial<CitizenReport>, submittedItem?: VerificationItem) => void;
+  deleteReport: (reportId: string) => void;
   addClaim: (c: CitizenClaim, item: VerificationItem) => void;
+  addEvidence: (itemId: string, description: string, photoUrl?: string) => void;
+  deleteEvidence: (itemId: string, evidenceId: string) => void;
   reset: () => void;
 }
 
+const defaultProfile = (displayName: string, email = 'warga.kebonjeruk@contoh.id', emailVerified = true): UserProfile => ({
+  id: 'usr-01',
+  displayName,
+  email,
+  emailVerified,
+  isActive: true,
+  createdAt: 'Januari 2025',
+});
+
 const initialState = (): WartaState => ({
   currentUser: CURRENT_USER,
+  userProfile: defaultProfile(CURRENT_USER),
   role: 'other',
   mapCondition: 'normal',
   activeScreen: 'peta',
   selectedProjectId: null,
+  selectedReportId: null,
+  editingDraftId: null,
   compactRupiah: true,
   queue: structuredClone(INITIAL_VERIFICATION_QUEUE),
   myReports: structuredClone(INITIAL_MY_REPORTS),
@@ -74,57 +101,114 @@ export function WartaProvider({ children }: { children: ReactNode }) {
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
       if (state.role === 'guest' || !state.currentUser)
-        return { allowed: false, reason: 'Masuk dengan Nama Tampilan Publik untuk memberi suara.' };
+        return { allowed: false, reason: 'Masuk dengan akun warga terlebih dahulu untuk memberi suara.' };
       if (state.role === 'owner' || state.currentUser === item.authorDisplayName)
         return { allowed: false, reason: OWNER_WARNING };
       if (item.voters.includes(state.currentUser))
-        return { allowed: false, reason: 'Anda sudah memberi 1 suara untuk item ini.' };
-      if (item.status !== 'menunggu') return { allowed: false, reason: 'Verifikasi item ini sudah selesai.' };
+        return { allowed: false, reason: 'Anda sudah memberi 1 suara untuk kiriman ini.' };
+      if (item.status !== 'menunggu') return { allowed: false, reason: 'Verifikasi kiriman ini sudah selesai.' };
       return { allowed: true };
     },
     [state.role, state.currentUser],
   );
 
-  const vote = useCallback(
-    (itemId: string, choice: VoteChoice) => {
-      setState((s) => {
-        const user = s.currentUser;
-        if (!user) return s;
-        let record: VoteRecord | null = null;
-        const queue = s.queue.map((it) => {
-          if (it.id !== itemId || it.voters.includes(user) || it.status !== 'menunggu') return it;
-          const votesAgree = it.votesAgree + (choice === 'setuju' ? 1 : 0);
-          const votesDisagree = it.votesDisagree + (choice === 'tidak_setuju' ? 1 : 0);
-          let status: VerificationItem['status'] = it.status;
-          if (votesAgree >= it.targetVotes) status = it.itemType === 'klaim_lokasi' ? 'diterima' : 'terverifikasi';
-          else if (votesDisagree >= it.targetVotes) status = 'ditolak';
-          record = {
-            itemId,
-            projectTitle: it.projectTitle,
-            itemType: it.itemType,
-            authorDisplayName: it.authorDisplayName,
-            choice,
-            votedAt: 'Baru saja',
-          };
-          return { ...it, votesAgree, votesDisagree, status, voters: [...it.voters, user] };
-        });
-        return record ? { ...s, queue, voteHistory: [record, ...s.voteHistory] } : s;
-      });
-    },
-    [],
-  );
+  const vote = useCallback((itemId: string, choice: VoteChoice) => {
+    setState((s) => {
+      const user = s.currentUser;
+      if (!user) return s;
+      const target = s.queue.find((it) => it.id === itemId);
+      if (!target || target.voters.includes(user) || target.status !== 'menunggu') return s;
+
+      const votesAgree = target.votesAgree + (choice === 'setuju' ? 1 : 0);
+      const votesDisagree = target.votesDisagree + (choice === 'tidak_setuju' ? 1 : 0);
+      let status: VerificationItem['status'] = target.status;
+      if (votesAgree >= target.targetVotes) {
+        status = target.itemType === 'klaim_lokasi' ? 'diterima' : 'terverifikasi';
+      } else if (votesDisagree >= target.targetVotes) {
+        status = 'ditolak';
+      }
+
+      const record: VoteRecord = {
+        itemId,
+        projectId: target.projectId,
+        projectTitle: target.projectTitle,
+        itemType: target.itemType,
+        authorDisplayName: target.authorDisplayName,
+        choice,
+        votedAt: 'Baru saja',
+        resolution: status,
+      };
+
+      const queue = s.queue.map((it) =>
+        it.id === itemId
+          ? { ...it, votesAgree, votesDisagree, status, voters: [...it.voters, user] }
+          : it,
+      );
+      return { ...s, queue, voteHistory: [record, ...s.voteHistory] };
+    });
+  }, []);
 
   const value = useMemo<WartaContextValue>(
     () => ({
       ...state,
-      setRole: (role) => patch({ role, currentUser: role === 'guest' ? null : state.currentUser ?? CURRENT_USER }),
+      setRole: (role) => {
+        const nextUser = role === 'guest' ? null : state.currentUser ?? CURRENT_USER;
+        patch({
+          role,
+          currentUser: nextUser,
+          userProfile: nextUser ? defaultProfile(nextUser) : null,
+        });
+      },
       setMapCondition: (mapCondition) => patch({ mapCondition }),
-      navigate: (activeScreen, projectId) =>
-        patch({ activeScreen, ...(projectId ? { selectedProjectId: projectId } : {}) }),
+      navigate: (activeScreen, projectId, reportId) =>
+        patch({
+          activeScreen,
+          ...(projectId !== undefined ? { selectedProjectId: projectId } : {}),
+          ...(reportId !== undefined ? { selectedReportId: reportId } : {}),
+          ...(activeScreen !== 'lapor' ? { editingDraftId: null } : {}),
+        }),
       selectProject: (selectedProjectId) => patch({ selectedProjectId }),
+      selectReport: (selectedReportId) => patch({ selectedReportId }),
+      startEditDraft: (reportId) => {
+        const found = state.myReports.find((r) => r.id === reportId);
+        patch({
+          editingDraftId: reportId,
+          selectedProjectId: found ? found.projectId : state.selectedProjectId,
+          activeScreen: 'lapor',
+        });
+      },
+      clearEditDraft: () => patch({ editingDraftId: null }),
       toggleRupiah: () => setState((s) => ({ ...s, compactRupiah: !s.compactRupiah })),
-      login: (currentUser) => patch({ currentUser, role: 'other', loginOpen: false }),
-      logout: () => patch({ currentUser: null, role: 'guest' }),
+      login: (displayName, email) =>
+        patch({
+          currentUser: displayName,
+          userProfile: defaultProfile(
+            displayName,
+            email ?? `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@warga.id`,
+            true,
+          ),
+          role: 'other',
+          loginOpen: false,
+        }),
+      register: (displayName, email) =>
+        patch({
+          currentUser: displayName,
+          userProfile: defaultProfile(displayName, email, false),
+          role: 'other',
+          loginOpen: false,
+        }),
+      updateDisplayName: (displayName) =>
+        setState((s) => ({
+          ...s,
+          currentUser: displayName,
+          userProfile: s.userProfile ? { ...s.userProfile, displayName } : defaultProfile(displayName),
+        })),
+      verifyCurrentEmail: () =>
+        setState((s) => ({
+          ...s,
+          userProfile: s.userProfile ? { ...s.userProfile, emailVerified: true } : null,
+        })),
+      logout: () => patch({ currentUser: null, userProfile: null, role: 'guest' }),
       setLoginOpen: (loginOpen) => patch({ loginOpen }),
       vote,
       canVote,
@@ -134,8 +218,60 @@ export function WartaProvider({ children }: { children: ReactNode }) {
           myReports: [r, ...s.myReports],
           queue: item ? [item, ...s.queue] : s.queue,
         })),
+      updateDraftReport: (reportId, updated, submittedItem) =>
+        setState((s) => ({
+          ...s,
+          editingDraftId: null,
+          myReports: s.myReports.map((r) => (r.id === reportId ? { ...r, ...updated } : r)),
+          queue: submittedItem ? [submittedItem, ...s.queue] : s.queue,
+        })),
+      deleteReport: (reportId) =>
+        setState((s) => {
+          const target = s.myReports.find((r) => r.id === reportId);
+          return {
+            ...s,
+            myReports: s.myReports.filter((r) => r.id !== reportId),
+            queue: target
+              ? s.queue.filter(
+                  (q) =>
+                    !(
+                      q.projectId === target.projectId &&
+                      q.authorDisplayName === s.currentUser &&
+                      q.narrative === target.narrative
+                    ),
+                )
+              : s.queue,
+          };
+        }),
       addClaim: (c, item) =>
         setState((s) => ({ ...s, myClaims: [c, ...s.myClaims], queue: [item, ...s.queue] })),
+      addEvidence: (itemId, description, photoUrl) =>
+        setState((s) => {
+          if (!s.currentUser) return s;
+          const newEv: EvidenceItem = {
+            id: `ev-${Date.now()}`,
+            reportId: itemId,
+            authorDisplayName: s.currentUser,
+            description,
+            photoUrl,
+            createdAt: 'Baru saja',
+          };
+          return {
+            ...s,
+            queue: s.queue.map((it) =>
+              it.id === itemId ? { ...it, evidences: [...(it.evidences ?? []), newEv] } : it,
+            ),
+          };
+        }),
+      deleteEvidence: (itemId, evidenceId) =>
+        setState((s) => ({
+          ...s,
+          queue: s.queue.map((it) =>
+            it.id === itemId
+              ? { ...it, evidences: (it.evidences ?? []).filter((e) => e.id !== evidenceId) }
+              : it,
+          ),
+        })),
       reset: () => setState(initialState()),
     }),
     [state, patch, vote, canVote],

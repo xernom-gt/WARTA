@@ -1,29 +1,45 @@
+import CitizenLoginModal from './components/common/CitizenLoginModal';
 import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
-import FeaturedProjectsSection from './components/landing/FeaturedProjectsSection';
-import HeroSection from './components/landing/HeroSection';
-import InteractiveConsensusDemo from './components/landing/InteractiveConsensusDemo';
-import LandingFooter from './components/landing/LandingFooter';
-import LandingNavbar from './components/landing/LandingNavbar';
-import PrivacyFaqSection from './components/landing/PrivacyFaqSection';
-import ProblemHighlightSection from './components/landing/ProblemHighlightSection';
-import WorkflowSection from './components/landing/WorkflowSection';
+import CitizenFooter from './components/layout/CitizenFooter';
+import CitizenHeader from './components/layout/CitizenHeader';
+import ProjectDetailModal from './components/project/ProjectDetailModal';
+import CitizenAccountView from './components/views/CitizenAccountView';
+import CitizenReportFormView from './components/views/CitizenReportFormView';
+import ExploreProjectsView from './components/views/ExploreProjectsView';
+import PublicReportsFeedView from './components/views/PublicReportsFeedView';
+import { WartaProvider, useWarta } from './context/WartaContext';
 
-const APP_URL = import.meta.env.VITE_APP_URL ?? 'http://localhost:5173';
+function CitizenScreen() {
+  const { activeScreen, editingDraftId } = useWarta();
+
+  switch (activeScreen) {
+    case 'aduan':
+    case 'verifikasi':
+      return <PublicReportsFeedView />;
+    case 'lapor':
+    case 'klaim':
+      return <CitizenReportFormView key={editingDraftId ?? 'new'} />;
+    case 'profil':
+      return <CitizenAccountView />;
+    default:
+      // 'peta' & 'detail' (modal detail terbuka di atas tampilan jelajah proyek)
+      return <ExploreProjectsView />;
+  }
+}
 
 export default function App() {
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-      <LandingNavbar appUrl={APP_URL} />
-      <main className="flex flex-1 flex-col">
-        <HeroSection appUrl={APP_URL} />
-        <ProblemHighlightSection />
-        <WorkflowSection />
-        <FeaturedProjectsSection />
-        <InteractiveConsensusDemo />
-        <PrivacyFaqSection />
-      </main>
-      <LandingFooter appUrl={APP_URL} />
-      <ScrollPositionIndicator />
-    </div>
+    <WartaProvider>
+      <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+        <CitizenHeader />
+        <main className="flex flex-1 flex-col">
+          <CitizenScreen />
+        </main>
+        <CitizenFooter />
+        <ProjectDetailModal />
+        <CitizenLoginModal />
+        <ScrollPositionIndicator />
+      </div>
+    </WartaProvider>
   );
 }
