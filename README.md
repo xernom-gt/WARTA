@@ -77,10 +77,72 @@ Setelah development server berhasil dijalankan, buka URL lokal yang ditampilkan 
 ### 3. Menjalankan Back-end
 
 > [!NOTE]
-> Saat ini, back-end masih dalam tahap perencanaan dan pengembangan. Panduan instalasi serta konfigurasi akan ditambahkan setelah implementasinya tersedia.
+> Back-end saat ini baru memiliki fondasi autentikasi (register, login JWT, `/auth/me`). Endpoint katalog proyek, laporan, dan verifikasi masih menyusul — lihat `TASK.md` untuk daftar pekerjaan yang tersisa.
+
+#### Persyaratan tambahan
+
+- [Go 1.27+](https://go.dev/)
+- [Docker](https://www.docker.com/) untuk database PostgreSQL
+
+#### 3.1. Menjalankan Database
+
+Dari folder root repository:
+
+```bash
+docker compose up -d db
+```
+
+Migrasi skema dijalankan otomatis oleh server saat start (`M1 Foundation: users`).
+
+#### 3.2. Menjalankan API Server
+
+Salin `.env.example` sebagai acuan, lalu set environment dan jalankan dari folder `api/`:
+
+**PowerShell**
+
+```powershell
+$env:DATABASE_URL = "postgres://warta:warta@localhost:5433/warta?sslmode=disable"
+$env:JWT_SECRET   = "<kunci-HS256-berupa-string-acak>"   # openssl rand -base64 48
+$env:WARTA_SEED   = "1"                                  # opsional isi data dev (3 warga, password: warta-dev-2026)
+
+cd api
+go run .
+```
+
+**Bash**
+
+```bash
+export DATABASE_URL="postgres://warta:warta@localhost:5433/warta?sslmode=disable"
+export JWT_SECRET="<kunci-HS256-berupa-string-acak>"
+export WARTA_SEED=1  # opsional isi data dev
+
+cd api
+go run .
+```
+
+Server berjalan di `http://localhost:3000`. Kontrak lengkap ada di `docs/api/openapi.yaml`.
+
+#### 3.3. Contoh Pemakaian
+
+```bash
+# Mendaftar
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"display_name":"warga_uji","email":"uji@example.com","password":"rahasia-aman"}'
+
+# Login (mengembalikan access_token JWT, masa berlaku 3600 detik)
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"uji@example.com","password":"rahasia-aman"}'
+
+# Profil pribadi (Bearer token dari login)
+curl http://localhost:3000/api/v1/auth/me -H "Authorization: Bearer <access_token>"
+```
 
 ## Status Proyek
 
-Warta saat ini masih berada dalam tahap awal pengembangan. Fokus utama pengerjaan sejauh ini adalah membangun antarmuka (UI) dan menentukan struktur visual aplikasi.
+Warta saat ini masih berada dalam tahap awal pengembangan.
 
-Pengembangan fungsionalitas back-end serta integrasi database akan dilakukan pada tahap selanjutnya.
+**Front-end**: antarmuka `landing/` dan `admin/` sudah berjalan, termasuk tampilan queue verifikasi dan profil warga.
+
+**Back-end**: fondasi autentikasi sudah tersedia pada `api/` — register warga, login dengan JWT (HS256, 3600s), rate limiting, `X-Request-Id`, serta tabel `users` (migrasi M1). Endpoint katalog proyek, laporan, klaim lokasi, dan verifikasi menyusul sesuai urutan di `TASK.md`.

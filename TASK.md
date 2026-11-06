@@ -8,11 +8,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 
 ### Auth Endpoints
 - [ ] `POST /auth/register` — Create account, hash password, send verification email, return private profile
-- [ ] `POST /auth/login` — Verify credentials, issue JWT (3600s), return token + private profile
+- [x] `POST /auth/login` — Verify credentials, issue JWT (3600s), return token + private profile
 - [ ] `POST /auth/verify-email` — Consume single-use token, set `email_verified_at`, return private profile
 - [ ] `POST /auth/resend-verification` — Authenticated, invalidate old token, send new (3/hr limit), return 204
 - [ ] `POST /auth/logout` — Revoke current token (blocklist or short expiry), return 204
-- [ ] `GET /auth/me` — Return private profile (only endpoint exposing `email`)
+- [x] `GET /auth/me` — Return private profile (only endpoint exposing `email`)
 
 ### User Profile Endpoints
 - [ ] `PATCH /users/me` — Update `display_name` (unique, 3-24 chars, alphanum + underscore)
@@ -23,12 +23,12 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [ ] `GET /users/{user_id}` — Public profile only (`id`, `display_name`, `is_active`, `created_at`)
 
 ### Auth Infrastructure
-- [ ] JWT signing/verification (HS256 or RS256)
+- [x] JWT signing/verification (HS256 or RS256)
 - [ ] Token blocklist or short expiry + refresh strategy
-- [ ] Password hashing (bcrypt/argon2, 72-byte limit)
+- [x] Password hashing (bcrypt/argon2, 72-byte limit)
 - [ ] Email verification token: generate, hash, store in `auth_tokens`, 24hr expiry, single-use
 - [ ] Rate limiting: login (5/min), register (3/min), resend-verification (3/hr)
-- [ ] `X-Request-Id` middleware (generate or pass through)
+- [x] `X-Request-Id` middleware (generate or pass through)
 
 ---
 
@@ -111,7 +111,7 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 🏗 Infrastructure & Cross-Cutting
 
 ### Database
-- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2)
+- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — M1 (users) done
 - [ ] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
 - [ ] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
 - [ ] Seed data for local dev (8 projects, 3 citizens, 3 verification items, vote history)
