@@ -1,12 +1,15 @@
 // WARTA API server: /health plus the /api/v1 contract. This milestone lands
-// the auth foundation (TASK.md §Auth & User Profile):
+// the auth foundation plus email verification (TASK.md §Auth & User Profile):
 //
-//	POST /api/v1/auth/register   create an account (rate limited, 5/hour/IP)
-//	POST /api/v1/auth/login      issue a JWT access token (10/minute/IP)
-//	GET  /api/v1/auth/me         private profile behind Bearer verification
+//	POST /api/v1/auth/register             create an account (5/hour/IP)
+//	                                       + sends the verification email
+//	POST /api/v1/auth/login                issue a JWT access token (10/min/IP)
+//	POST /api/v1/auth/verify-email         consume the mailed single-use token
+//	POST /api/v1/auth/resend-verification  re-issue + re-send (3/hour/account)
+//	GET  /api/v1/auth/me                   private profile behind Bearer
 //
-// Remaining auth endpoints (email verification, logout blocklist, /users/me)
-// are adjacent tasks. Contracts: docs/api/openapi.yaml, §6.1-6.3 requirements.
+// Remaining auth endpoints (logout blocklist, /users/me family) are adjacent
+// tasks. Contracts: docs/api/openapi.yaml, §6.1-6.3, §6.20-6.21 requirements.
 package main
 
 import (
@@ -20,9 +23,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warta.com/api/internal/auth"
+	"warta.com/api/internal/authtoken"
 	"warta.com/api/internal/config"
 	"warta.com/api/internal/db"
 	"warta.com/api/internal/httpx"
+	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
 	"warta.com/api/internal/token"
@@ -66,7 +71,18 @@ func main() {
 // (the pool remains required by /health only).
 func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	manager := token.NewManager(string(cfg.JWTSecret), cfg.JWTTTL)
-	handlers := auth.NewHandler(store, manager)
+	tokens := authtoken.NewPGStore(pool)
+	mail := chooseMailer(cfg)
+	resendLimit := middleware.NewRateLimiter(cfg.ResendRateLimit, time.Hour)
+
+	handlers := auth.NewHandler(auth.Deps{
+		Store:      store,
+		Manager:    manager,
+		Tokens:     tokens,
+		Mail:       mail,
+		MailFrom:   cfg.MailFrom,
+		VerifyBase: cfg.MailVerifyBaseURL,
+	})
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
 
@@ -84,9 +100,31 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1 := app.Group("/api/v1")
 	v1.Post("/auth/register", registerLimit.Middleware(), handlers.Register)
 	v1.Post("/auth/login", loginLimit.Middleware(), handlers.Login)
+	v1.Post("/auth/verify-email", handlers.VerifyEmail)
+	// §6.21 rate limiting is per account, so the identity middleware must
+	// run before the limiter: the key is the bearer-verified user id.
+	v1.Post("/auth/resend-verification",
+		middleware.Bearer(manager),
+		resendLimit.MiddlewareForKey(func(c fiber.Ctx) string {
+			id, _ := c.Locals(middleware.LocalUserID).(string)
+			return id
+		}),
+		handlers.ResendVerification)
 	v1.Get("/auth/me", middleware.Bearer(manager), handlers.Me)
 
 	return api{app: app}
+}
+
+// chooseMailer selects the delivery transport (§3.5): SMTP when a host is
+// configured, the log-printing console transport otherwise. The choice is
+// logged once so a dev stack never silently pretends to deliver mail.
+func chooseMailer(cfg config.Config) mailer.Service {
+	if cfg.SMTPHost == "" {
+		log.Print("warta api: mail via console (SMTP_HOST unset; verification links print to the log)")
+		return mailer.Console{}
+	}
+	log.Printf("warta api: mail via smtp %s:%d", cfg.SMTPHost, cfg.SMTPPort)
+	return mailer.NewSMTP(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword)
 }
 
 // api bundles the pieces main needs after wiring.

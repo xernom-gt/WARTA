@@ -814,8 +814,7 @@ Rules:
 - Authenticated, and only meaningful while `email_verified_at` is null.
 - Sends a new token and invalidates the previous one.
 - Rate limited to 3 requests per hour per account.
-- Returns `204` regardless of whether a new email was actually sent, so the endpoint cannot be used to probe account state.
-- An already verified account returns `409 email_already_verified`.
+- Returns `204` regardless of whether a new email was actually sent, so the endpoint cannot be used to probe account state. An already verified account behaves the same: nothing is sent and no token is issued, and the request still spends its rate-limit budget. `409 email_already_verified` is reserved for `/auth/verify-email` (§6.20).
 
 ### 6.22 GET `/users/me/votes`
 

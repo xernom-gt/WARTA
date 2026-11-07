@@ -1,13 +1,19 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
 
+	"warta.com/api/internal/authtoken"
 	"warta.com/api/internal/httpx"
+	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
 	"warta.com/api/internal/token"
@@ -18,11 +24,36 @@ import (
 type Handler struct {
 	store   user.Store
 	manager *token.Manager
+	tokens  authtoken.Store
+	mail    mailer.Service
+	// mailFrom is the RFC 5322 From header of outgoing mail (config MAIL_FROM).
+	mailFrom string
+	// verifyBase is the frontend page consuming the token (config
+	// MAIL_VERIFY_BASE_URL); the raw token rides as ?token=.
+	verifyBase string
 }
 
-// NewHandler wires a user store and a token manager into the handlers.
-func NewHandler(store user.Store, manager *token.Manager) *Handler {
-	return &Handler{store: store, manager: manager}
+// Deps bundles NewHandler's collaborators. Tokens and Mail are the email
+// verification half added by the §3.5/§6.20-6.21 milestone.
+type Deps struct {
+	Store      user.Store
+	Manager    *token.Manager
+	Tokens     authtoken.Store
+	Mail       mailer.Service
+	MailFrom   string
+	VerifyBase string
+}
+
+// NewHandler wires the collaborators behind every /auth/* handler.
+func NewHandler(d Deps) *Handler {
+	return &Handler{
+		store:      d.Store,
+		manager:    d.Manager,
+		tokens:     d.Tokens,
+		mail:       d.Mail,
+		mailFrom:   d.MailFrom,
+		verifyBase: d.VerifyBase,
+	}
 }
 
 // --- response shapes ---------------------------------------------------------
@@ -97,10 +128,8 @@ func nullableRFC3339(t *time.Time) *string {
 // --- handlers ----------------------------------------------------------------
 
 // Register implements POST /auth/register (§6.1): create the account with a
-// hashed password, then hand back the private profile. Email verification
-// delivery is still pending as its own task (§6.20-6.21 depends on the
-// auth_tokens migration); until then the account is simply unverified,
-// matching the schema default of a NULL email_verified_at.
+// hashed password, deliver the address-verification email, then hand back
+// the private profile (§3.5).
 func (h *Handler) Register(c fiber.Ctx) error {
 	var req registerRequest
 	if !decodeJSON(c, &req) {
@@ -134,6 +163,13 @@ func (h *Handler) Register(c fiber.Ctx) error {
 		}
 		return err
 	}
+
+	// §6.1: the fresh account owns a verification email. Delivery is
+	// best-effort (§6.21's send-regardless pattern): the row already
+	// exists, so failing the response would strand 201-retry callers at a
+	// 409 — a broken mail transport is logged and recoverable via
+	// /auth/resend-verification once the citizen logs in.
+	h.deliverVerification(c.Context(), u)
 
 	c.Set(fiber.HeaderLocation, "/api/v1/users/"+u.ID)
 	return httpx.Data(c, fiber.StatusCreated, userPrivateView(u))
@@ -209,6 +245,116 @@ func (h *Handler) Me(c fiber.Ctx) error {
 			"account_inactive", "This account has been deactivated.")
 	}
 	return httpx.Data(c, fiber.StatusOK, userPrivateView(u))
+}
+
+// VerifyEmail implements POST /auth/verify-email (§6.20): public, because
+// the token carries the account identity. Expired, used, unknown, or
+// tampered tokens are uniformly rejected as 422 (§3.15 opacity); an owned
+// but already-verified address is the catalogue's 409 email_already_verified.
+// Consume deliberately precedes the verification stamp: the token is
+// single-use even when the account it names turns out already verified.
+func (h *Handler) VerifyEmail(c fiber.Ctx) error {
+	var req verifyEmailRequest
+	if !decodeJSON(c, &req) {
+		return nil
+	}
+
+	if details := validateVerifyEmail(&req); len(details) > 0 {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity,
+			"validation_failed", "One or more fields are invalid.", details...)
+	}
+
+	userID, err := h.tokens.Consume(c.Context(), req.Token,
+		authtoken.EmailVerification, time.Now().UTC())
+	if errors.Is(err, authtoken.ErrInvalidToken) {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
+			"The verification token is invalid or has expired.")
+	}
+	if err != nil {
+		return err
+	}
+
+	u, err := h.store.MarkEmailVerified(c.Context(), userID, time.Now().UTC())
+	switch {
+	case errors.Is(err, user.ErrAlreadyVerified):
+		return httpx.Error(c, fiber.StatusConflict, "email_already_verified",
+			"This email address is already verified.")
+	case errors.Is(err, user.ErrNotFound):
+		// The token was real but its account is gone (deletions cascade,
+		// so this needs drift to occur); §3.15 opacity makes it look like
+		// any other dead token.
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
+			"The verification token is invalid or has expired.")
+	case err != nil:
+		return err
+	}
+	return httpx.Data(c, fiber.StatusOK, userPrivateView(u))
+}
+
+// ResendVerification implements POST /auth/resend-verification (§6.21):
+// authenticated, replaces the previous unused token by issuing a fresh one,
+// and answers 204 regardless of delivery so account state cannot be probed.
+// The rate-limit middleware upstream keys 3/hour per account (§6.21), not
+// per IP — see rate_limit.go MiddlewareForKey.
+func (h *Handler) ResendVerification(c fiber.Ctx) error {
+	id, _ := c.Locals(middleware.LocalUserID).(string)
+
+	u, err := h.store.FindByID(c.Context(), id)
+	switch {
+	case err == nil:
+	case errors.Is(err, user.ErrNotFound):
+		// Token valid but row gone: class the session as expired (§4.5,
+		// same mapping as Me).
+		return httpx.Error(c, fiber.StatusUnauthorized,
+			"token_expired", "Missing or invalid access token.")
+	default:
+		return err
+	}
+
+	if !u.IsActive {
+		return httpx.Error(c, fiber.StatusForbidden,
+			"account_inactive", "This account has been deactivated.")
+	}
+
+	if u.EmailVerifiedAt != nil {
+		// openapi.md is the contract here: 204 even when already verified.
+		// Issuing a token would be pure noise; the silent no-op keeps the
+		// endpoint from leaking verification state (§6.21 rationale).
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+
+	// Issue inside deliverVerification invalidates the previous unused
+	// token (§3.15), so at most one live invitation per account exists.
+	h.deliverVerification(c.Context(), u)
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// deliverVerification issues a fresh 24-hour single-use token (§3.5) and
+// hands the matching mail to the configured transport. Failures are logged,
+// never fatal: register and resend-verification answer 201/204 regardless of
+// delivery (§6.21), and a logged breakage remains recoverable by resending.
+func (h *Handler) deliverVerification(ctx context.Context, u *user.User) {
+	raw, tok, err := authtoken.New(u.ID, authtoken.EmailVerification,
+		time.Now().UTC(), authtoken.StandardTTL)
+	if err != nil {
+		log.Printf("auth: verification token for %s unavailable: %v", u.Email, err)
+		return
+	}
+	if err := h.tokens.Issue(ctx, &tok); err != nil {
+		log.Printf("auth: verification token for %s not stored: %v", u.Email, err)
+		return
+	}
+	message := mailer.VerificationEmail(h.mailFrom, u.Email, u.DisplayName, h.verifyLink(raw))
+	if err := h.mail.Send(ctx, message); err != nil {
+		// §6.21: the endpoint answers regardless of the send, so a mail
+		// outage surfaces here in the log — visible ops signal, recoverable.
+		log.Printf("auth: verification mail to %s not delivered: %v", u.Email, err)
+	}
+}
+
+// verifyLink assembles the frontend anchor that carries the raw token.
+func (h *Handler) verifyLink(raw string) string {
+	return strings.TrimSuffix(h.verifyBase, "/") + "?token=" + url.QueryEscape(raw)
 }
 
 // duplicateMessage renders the 409 message per duplicated field.

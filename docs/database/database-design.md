@@ -874,6 +874,13 @@ This section defines the migration plan. Executable migration files are intentio
 | M8 | Reference Seed | Project categories and work units used by the mock data | M2 | Delete reference rows when unused |
 | M9 | Verification and Search Hardening | `users.email_verified_at`, `auth_tokens`, `reports.deleted_at`, generated `projects.search_vector`, `pg_trgm` extension, GIN and partial indexes | M1–M7 | Drop the new indexes, columns, and `auth_tokens` |
 
+> Implementation note: `auth_tokens` landed before M9 as migration 000002
+> (interim M2) because email verification (§3.5, §6.20–6.21) ships without
+> waiting for the reports milestones, and `users.email_verified_at` was
+> already part of M1. For this repo, M9 therefore shrinks to its remaining
+> hardening scope: `reports.deleted_at`, `search_vector`, `pg_trgm`, GIN and
+> partial indexes.
+
 ### 9.3 Migration Rules
 
 1. Create parent tables before child tables.

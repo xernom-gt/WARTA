@@ -23,6 +23,12 @@ type User struct {
 // ErrNotFound is returned by lookups when no row matches.
 var ErrNotFound = errors.New("user: not found")
 
+// ErrAlreadyVerified is returned when the account already has
+// email_verified_at set and the caller asked to verify again (§6.20: this is
+// the catalogue's 409 email_already_verified, distinguishable on the outside
+// from an unknown row).
+var ErrAlreadyVerified = errors.New("user: email already verified")
+
 // DuplicateField identifies which unique column rejected an insert.
 // The rendered error message forms the catalogue 409 body (§9.2: conflict).
 type DuplicateField string
@@ -54,4 +60,10 @@ type Store interface {
 
 	// FindByID performs an exact match on the UUID primary key.
 	FindByID(ctx context.Context, id string) (*User, error)
+
+	// MarkEmailVerified stamps the first verification time and returns the
+	// updated row. An account already carrying email_verified_at yields
+	// *ErrAlreadyVerified; a missing row yields ErrNotFound. The guard
+	// `email_verified_at IS NULL` makes the stamp write-once.
+	MarkEmailVerified(ctx context.Context, id string, at time.Time) (*User, error)
 }
