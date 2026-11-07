@@ -44,19 +44,27 @@ func NewRateLimiter(max int64, window time.Duration) *RateLimiter {
 	}
 }
 
-// Middleware returns the Fiber handler enforcing the limit.
+// Middleware returns the Fiber handler enforcing the limit per client IP.
 func (r *RateLimiter) Middleware() fiber.Handler {
+	return r.MiddlewareForKey(func(c fiber.Ctx) string { return c.IP() })
+}
+
+// MiddlewareForKey limits by a caller-chosen key instead of the IP. The
+// resend-verification gate keys per account (§6.21: 3/hour per account), so
+// neighbours on shared egress IPs cannot lock each other out and one account
+// cannot fan out across addresses to dodge its own limit.
+func (r *RateLimiter) MiddlewareForKey(keyOf func(c fiber.Ctx) string) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		now := time.Now()
 		epoch := now.Unix() / int64(r.window.Seconds())
-		ip := c.IP()
+		key := keyOf(c)
 
 		r.mu.Lock()
 		r.prune(epoch)
-		bucket := r.buckets[ip]
+		bucket := r.buckets[key]
 		if bucket == nil || bucket.epoch != epoch {
 			bucket = &windowBucket{epoch: epoch}
-			r.buckets[ip] = bucket
+			r.buckets[key] = bucket
 		}
 		bucket.hits++
 		remaining := int64(r.window.Seconds()) - (now.Unix() % int64(r.window.Seconds()))

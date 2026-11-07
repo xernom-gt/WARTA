@@ -94,3 +94,23 @@ func (s *MemoryStore) FindByID(_ context.Context, id string) (*User, error) {
 	}
 	return nil, ErrNotFound
 }
+
+// MarkEmailVerified mirrors the PG store: write-once guard separating
+// already-verified (ErrAlreadyVerified) from missing rows (ErrNotFound).
+func (s *MemoryStore) MarkEmailVerified(_ context.Context, id string, at time.Time) (*User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if u.EmailVerifiedAt != nil {
+		return nil, ErrAlreadyVerified
+	}
+	stored := *u
+	stamp := at.UTC()
+	stored.EmailVerifiedAt = &stamp
+	stored.UpdatedAt = stamp // stand-in for the M1 updated_at trigger
+	s.byID[id] = &stored
+	return &stored, nil
+}

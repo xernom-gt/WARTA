@@ -78,6 +78,26 @@ func (s *PGStore) FindByID(ctx context.Context, id string) (*User, error) {
 	return scanOne(row)
 }
 
+// MarkEmailVerified writes the stamp while the account is still unverified.
+// Rows affected 0 means either gone or already stamped; a follow-up lookup
+// separates the two so the handler can render 409 vs 422 (§6.20). The
+// updated_at trigger from M1 keeps UpdatedAt honest.
+func (s *PGStore) MarkEmailVerified(ctx context.Context, id string, at time.Time) (*User, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE users SET email_verified_at = $2
+		WHERE id = $1 AND email_verified_at IS NULL`, id, at)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 1 {
+		return s.FindByID(ctx, id)
+	}
+	if _, lookupErr := s.FindByID(ctx, id); lookupErr != nil {
+		return nil, ErrNotFound
+	}
+	return nil, ErrAlreadyVerified
+}
+
 // scanOne normalises "no rows" into ErrNotFound for every lookup query.
 func scanOne(row pgx.Row) (*User, error) {
 	u := &User{}

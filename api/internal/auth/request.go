@@ -1,5 +1,6 @@
-// Package auth implements the HTTP handlers of /auth/* (login, register, me)
-// per docs/api/api-requirements.md §6.1-6.3 and the response shapes pinned in
+// Package auth implements the HTTP handlers of /auth/* (register, login,
+// me, verify-email, resend-verification) per docs/api/api-requirements.md
+// §6.1-6.3, §6.20-6.21 and the response shapes pinned in
 // docs/api/openapi.yaml (AuthToken, AuthUser, UserPrivate).
 package auth
 
@@ -21,6 +22,11 @@ type registerRequest struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+// verifyEmailRequest mirrors openapi.yaml VerifyEmailRequest.
+type verifyEmailRequest struct {
+	Token string `json:"token"`
 }
 
 // displayNameRe is the canonical identity rule (§8.1): 3-24 chars, letters,
@@ -97,4 +103,30 @@ func emailDetail(message string) httpx.FieldError {
 
 func passwordDetail(message string) httpx.FieldError {
 	return httpx.FieldError{Field: "password", Message: message}
+}
+
+// maxVerifyTokenLen bounds the token to the token_hash column width. The
+// real raw token is 43 characters; the cap only stops abuse bodies from
+// ballooning parsing, every token *meaning* problem is answered by the
+// store with the uniform 422 (§3.15).
+const maxVerifyTokenLen = 255
+
+// validateVerifyEmail checks presence and size only: expired, used, or
+// tampered tokens are indistinguishable by design (§3.15) and are detected
+// where the truth lives — the store consume — not in field details.
+func validateVerifyEmail(r *verifyEmailRequest) []httpx.FieldError {
+	var details []httpx.FieldError
+	switch {
+	case r.Token == "":
+		details = append(details, httpx.FieldError{
+			Field:   "token",
+			Message: "Token is required.",
+		})
+	case len(r.Token) > maxVerifyTokenLen:
+		details = append(details, httpx.FieldError{
+			Field:   "token",
+			Message: "Must be at most 255 characters.",
+		})
+	}
+	return details
 }

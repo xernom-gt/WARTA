@@ -29,6 +29,25 @@ type Config struct {
 	// RegisterRateLimit is the max register requests per hour per IP (§13.4: 5).
 	RegisterRateLimit int64
 
+	// ResendRateLimit is the max resend-verification requests per hour per
+	// account (§6.21: 3).
+	ResendRateLimit int64
+
+	// SMTP delivery (§3.5). SMTPHost empty selects the console transport,
+	// which prints every outgoing mail into the server log for local dev.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+
+	// MailFrom is the RFC 5322 From header of transactional mail, e.g.
+	// `WARTA <no-reply@warta.id>`.
+	MailFrom string
+
+	// MailVerifyBaseURL is the frontend page that consumes the token; the
+	// mailed link is BASE?token=<raw> (§6.20).
+	MailVerifyBaseURL string
+
 	// Seed toggles dev seed data when the users table is empty.
 	Seed bool
 
@@ -42,6 +61,10 @@ const (
 	defaultJWTTTLSeconds = 3600
 	defaultLoginRate     = 10
 	defaultRegisterRate  = 5
+	defaultResendRate    = 3
+	defaultSMTPPort      = 587
+	defaultMailFrom      = "WARTA <no-reply@warta.id>"
+	defaultVerifyBaseURL = "http://localhost:5173/verify-email"
 )
 
 var errEnv = "config: %s must be a positive integer, got %q"
@@ -65,6 +88,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	resend, err := positiveInt("RESEND_RATE_LIMIT", defaultResendRate)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpPort, err := positiveInt("SMTP_PORT", defaultSMTPPort)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Port:              port,
@@ -72,9 +103,19 @@ func Load() (Config, error) {
 		JWTTTL:            ttl,
 		LoginRateLimit:    login,
 		RegisterRateLimit: register,
+		ResendRateLimit:   resend,
+		SMTPPort:          int(smtpPort),
+		MailFrom:          value("MAIL_FROM", defaultMailFrom),
+		MailVerifyBaseURL: value("MAIL_VERIFY_BASE_URL", defaultVerifyBaseURL),
 		Seed:              os.Getenv("WARTA_SEED") == "1",
 		Version:           "0.1.0",
 	}
+
+	// SMTP host is optional: empty selects the console transport. The other
+	// SMTP values are only meaningful together with a host.
+	cfg.SMTPHost = os.Getenv("SMTP_HOST")
+	cfg.SMTPUsername = os.Getenv("SMTP_USERNAME")
+	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
 
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
