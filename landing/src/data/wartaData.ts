@@ -7,6 +7,15 @@ import type {
   VoteRecord,
 } from '../types/warta';
 
+/**
+ * Data contoh (aduan, suara, akun warga) disembunyikan secara bawaan sampai
+ * API tersambung. Nyalakan untuk meninjau tampilan: tulis VITE_SAMPLE_DATA=1
+ * di landing/.env.local lalu jalankan ulang dev server.
+ */
+export const SAMPLE_DATA =
+  import.meta.env.VITE_SAMPLE_DATA === '1' ||
+  (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('sample') === '1');
+
 export const DATASET_SUMMARY = {
   totalRawPackages: 122,
   uniqueProjects: 118,
@@ -446,6 +455,7 @@ export const INITIAL_VERIFICATION_QUEUE: VerificationItem[] = [
     id: 'ver-1',
     ...fromProject('proj-1'),
     itemType: 'laporan_kondisi',
+    category: 'lambat_mangkrak',
     categoryLabel: REPORT_CATEGORY_LABELS.lambat_mangkrak,
     authorDisplayName: OTHER_USER,
     createdAt: '12 Maret 2025, 08.40',
@@ -457,16 +467,29 @@ export const INITIAL_VERIFICATION_QUEUE: VerificationItem[] = [
     proposedAddress: 'Rorotan, Kec. Cilincing, Jakarta Utara',
     coordinates: { lat: -6.1475, lng: 106.9528 },
     photoUrl: '/photos/rusun-rorotan.svg',
+    photoUrls: ['/photos/rusun-rorotan.svg'],
     votesAgree: 2,
     votesDisagree: 0,
     targetVotes: 3,
     voters: ['Warga_Marunda', 'Warga_Semper'],
     status: 'menunggu',
+    evidences: [
+      {
+        id: 'ev-1',
+        reportId: 'ver-1',
+        authorDisplayName: 'Warga_Marunda',
+        description:
+          'Kondisi pintu masuk proyek per 13 Maret pagi masih digembok dan tidak ada truk material yang keluar-masuk.',
+        photoUrl: '/photos/rusun-rorotan.svg',
+        createdAt: '13 Maret 2025, 09.15',
+      },
+    ],
   },
   {
     id: 'ver-2',
     ...fromProject('proj-6'),
     itemType: 'laporan_kondisi',
+    category: 'papan_tidak_ada',
     categoryLabel: REPORT_CATEGORY_LABELS.papan_tidak_ada,
     authorDisplayName: CURRENT_USER,
     createdAt: '13 Maret 2025, 15.10',
@@ -477,11 +500,13 @@ export const INITIAL_VERIFICATION_QUEUE: VerificationItem[] = [
     proposedAddress: 'Tebet Timur, Kec. Tebet, Jakarta Selatan',
     coordinates: { lat: -6.2337, lng: 106.8543 },
     photoUrl: '/photos/sekolah-tebet.svg',
+    photoUrls: ['/photos/sekolah-tebet.svg'],
     votesAgree: 1,
     votesDisagree: 0,
     targetVotes: 3,
     voters: ['Warga_Tebet'],
     status: 'menunggu',
+    evidences: [],
   },
   {
     id: 'ver-3',
@@ -498,30 +523,89 @@ export const INITIAL_VERIFICATION_QUEUE: VerificationItem[] = [
     proposedPrecision: 'alamat/ruas',
     coordinates: { lat: -6.3421, lng: 106.9983 },
     photoUrl: '/photos/tpst-bantargebang.svg',
+    photoUrls: ['/photos/tpst-bantargebang.svg'],
     votesAgree: 2,
     votesDisagree: 1,
     targetVotes: 3,
     voters: ['Warga_Ciketing', 'Warga_Sumurbatu', 'Warga_Cikiwul'],
     status: 'menunggu',
+    evidences: [],
+  },
+  {
+    id: 'ver-4',
+    ...fromProject('proj-3'),
+    itemType: 'laporan_kondisi',
+    category: 'lambat_mangkrak',
+    categoryLabel: REPORT_CATEGORY_LABELS.lambat_mangkrak,
+    authorDisplayName: 'Warga_KojaUtara',
+    createdAt: '8 Maret 2025, 11.20',
+    distanceFromProject: '25 m dari Jl. Persahabatan No.13',
+    exifValid: true,
+    exifNotice: 'Foto cocok dengan lokasi (Geotag valid)',
+    narrative:
+      'Pekerjaan rangka atap gedung UILS Koja sudah berhenti sejak pekan lalu, material besi dibiarkan terkena hujan tanpa penutup terpal.',
+    proposedAddress: 'Jl. Persahabatan No.13-14, Tugu Utara, Kec. Koja, Jakarta Utara',
+    coordinates: { lat: -6.1214, lng: 106.9012 },
+    photoUrl: '/photos/rusun-rorotan.svg',
+    photoUrls: ['/photos/rusun-rorotan.svg'],
+    votesAgree: 3,
+    votesDisagree: 0,
+    targetVotes: 3,
+    voters: ['Warga_TuguUtara', 'Warga_Lagoa', 'Warga_RawaBadak'],
+    status: 'terverifikasi',
+    evidences: [
+      {
+        id: 'ev-2',
+        reportId: 'ver-4',
+        authorDisplayName: 'Warga_TuguUtara',
+        description: 'Tumpukan rangka baja di halaman depan mulai berkarat karena tidak ditutup.',
+        photoUrl: '/photos/sekolah-tebet.svg',
+        createdAt: '9 Maret 2025, 14.00',
+      },
+    ],
+  },
+  {
+    id: 'ver-5',
+    ...fromProject('proj-7'),
+    itemType: 'laporan_kondisi',
+    category: 'selesai',
+    categoryLabel: REPORT_CATEGORY_LABELS.selesai,
+    authorDisplayName: 'Warga_Menteng',
+    createdAt: '5 Maret 2025, 16.45',
+    distanceFromProject: '60 m dari titik galian',
+    exifValid: true,
+    exifNotice: 'Foto cocok dengan lokasi (Geotag valid)',
+    narrative:
+      'Lubang galian jaringan pipa air limbah di sisi timur Kel. Gambir sudah ditutup kembali dan pengaspalan ulang sudah rapi.',
+    proposedAddress: 'Kel. Gambir, Kec. Gambir, Jakarta Pusat',
+    coordinates: { lat: -6.1944, lng: 106.8229 },
+    photoUrl: '/photos/tpst-bantargebang.svg',
+    photoUrls: ['/photos/tpst-bantargebang.svg'],
+    votesAgree: 3,
+    votesDisagree: 0,
+    targetVotes: 3,
+    voters: ['Warga_Gambir', 'Warga_Cikini', 'Warga_SawahBesar'],
+    status: 'terverifikasi',
+    evidences: [],
   },
 ];
 
 export const INITIAL_MY_REPORTS: CitizenReport[] = [
-  { id: 'rep-0', ...pick('proj-1'), category: 'belum_mulai', narrative: 'Catatan pengamatan awal kondisi lahan di sekitar Rorotan (belum dikirim).', createdAt: '15 Maret 2025', status: 'draft' },
-  { id: 'rep-1', ...pick('proj-6'), category: 'papan_tidak_ada', narrative: 'Papan proyek tidak terpasang di SDN Tebet Timur 07.', createdAt: '13 Maret 2025', status: 'menunggu' },
-  { id: 'rep-2', ...pick('proj-3'), category: 'lambat_mangkrak', narrative: 'Pekerjaan atap tertunda, material menumpuk di halaman.', createdAt: '2 Maret 2025', status: 'terverifikasi' },
-  { id: 'rep-3', ...pick('proj-5'), category: 'fisik_rusak', narrative: 'Retak rambut di dinding tanggul sisi barat.', createdAt: '20 Februari 2025', status: 'ditolak' },
-  { id: 'rep-4', ...pick('proj-7'), category: 'selesai', narrative: 'Galian pipa di Kel. Gambir sudah ditutup dan diaspal kembali.', createdAt: '5 Februari 2025', status: 'selesai' },
+  { id: 'rep-0', ...pick('proj-1'), category: 'belum_mulai', narrative: 'Catatan pengamatan awal kondisi lahan di sekitar Rorotan (belum dikirim).', proposedAddress: 'Rorotan, Kec. Cilincing, Jakarta Utara', photoUrls: ['/photos/rusun-rorotan.svg'], exifValid: true, distanceFromProject: '120 m dari area proyek', createdAt: '15 Maret 2025', status: 'draft' },
+  { id: 'rep-1', ...pick('proj-6'), category: 'papan_tidak_ada', narrative: 'Papan proyek tidak terpasang di SDN Tebet Timur 07.', proposedAddress: 'Tebet Timur, Kec. Tebet, Jakarta Selatan', photoUrls: ['/photos/sekolah-tebet.svg'], exifValid: false, distanceFromProject: '40 m dari SDN Tebet Timur 07', createdAt: '13 Maret 2025', status: 'menunggu' },
+  { id: 'rep-2', ...pick('proj-3'), category: 'lambat_mangkrak', narrative: 'Pekerjaan atap tertunda, material menumpuk di halaman.', proposedAddress: 'Jl. Persahabatan No.13-14, Tugu Utara, Kec. Koja', photoUrls: ['/photos/rusun-rorotan.svg'], exifValid: true, distanceFromProject: '30 m dari lokasi', createdAt: '2 Maret 2025', status: 'terverifikasi' },
+  { id: 'rep-3', ...pick('proj-5'), category: 'fisik_rusak', narrative: 'Retak rambut di dinding tanggul sisi barat.', proposedAddress: 'Pesisir Muara Baru, Penjaringan, Jakarta Utara', photoUrls: ['/photos/tpst-bantargebang.svg'], exifValid: false, distanceFromProject: '310 m dari area perkiraan', createdAt: '20 Februari 2025', status: 'ditolak' },
+  { id: 'rep-4', ...pick('proj-7'), category: 'selesai', narrative: 'Galian pipa di Kel. Gambir sudah ditutup dan diaspal kembali.', proposedAddress: 'Kel. Gambir, Kec. Gambir, Jakarta Pusat', photoUrls: ['/photos/sekolah-tebet.svg'], exifValid: true, distanceFromProject: '55 m dari lokasi', createdAt: '5 Februari 2025', status: 'selesai' },
 ];
 
 export const INITIAL_MY_CLAIMS: CitizenClaim[] = [
-  { id: 'clm-1', ...pick('proj-4'), proposedAddress: 'Jl. Pangkalan V, Kel. Ciketing Udik, Kec. Bantargebang, Bekasi', proposedPrecision: 'desa/kelurahan', createdAt: '1 Maret 2025', status: 'diterima' },
-  { id: 'clm-2', ...pick('proj-2'), proposedAddress: 'Jl. Kamal Raya, Kel. Kamal Muara, Kec. Penjaringan', proposedPrecision: 'alamat/ruas', createdAt: '10 Maret 2025', status: 'menunggu' },
+  { id: 'clm-1', ...pick('proj-4'), proposedAddress: 'Jl. Pangkalan V, Kel. Ciketing Udik, Kec. Bantargebang, Bekasi', proposedPrecision: 'desa/kelurahan', photoUrl: '/photos/tpst-bantargebang.svg', createdAt: '1 Maret 2025', status: 'diterima' },
+  { id: 'clm-2', ...pick('proj-2'), proposedAddress: 'Jl. Kamal Raya, Kel. Kamal Muara, Kec. Penjaringan', proposedPrecision: 'alamat/ruas', photoUrl: '/photos/rusun-rorotan.svg', createdAt: '10 Maret 2025', status: 'menunggu' },
 ];
 
 export const INITIAL_VOTE_HISTORY: VoteRecord[] = [
-  { itemId: 'old-1', projectTitle: getProject('proj-7').title, itemType: 'laporan_kondisi', authorDisplayName: 'Warga_Menteng', choice: 'setuju', votedAt: '8 Maret 2025' },
-  { itemId: 'old-2', projectTitle: getProject('proj-1').title, itemType: 'klaim_lokasi', authorDisplayName: 'Warga_Rorotan', choice: 'tidak_setuju', votedAt: '4 Maret 2025' },
+  { itemId: 'ver-5', projectId: 'proj-7', projectTitle: getProject('proj-7').title, itemType: 'laporan_kondisi', authorDisplayName: 'Warga_Menteng', choice: 'setuju', votedAt: '8 Maret 2025', resolution: 'terverifikasi' },
+  { itemId: 'ver-1', projectId: 'proj-1', projectTitle: getProject('proj-1').title, itemType: 'klaim_lokasi', authorDisplayName: 'Warga_Rorotan', choice: 'tidak_setuju', votedAt: '4 Maret 2025', resolution: 'menunggu' },
 ];
 
 function pick(projectId: string) {

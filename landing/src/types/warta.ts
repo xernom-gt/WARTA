@@ -28,6 +28,7 @@ export type MapCondition =
 
 export type ActiveScreen =
   | 'peta'
+  | 'aduan'
   | 'detail'
   | 'lapor'
   | 'verifikasi'
@@ -105,6 +106,15 @@ export interface ProjectPackage {
   mapCoordinates: { svgX: number; svgY: number; lat: number; lng: number };
 }
 
+export interface EvidenceItem {
+  id: string;
+  reportId: string;
+  authorDisplayName: string;
+  description: string;
+  photoUrl?: string;
+  createdAt: string;
+}
+
 export interface VerificationItem {
   id: string;
   projectId: string;
@@ -113,25 +123,28 @@ export interface VerificationItem {
   satker: string;
   paguCompact: string;
   itemType: 'laporan_kondisi' | 'klaim_lokasi';
+  category?: ReportCategory;
   categoryLabel: string;
   authorDisplayName: string;
   createdAt: string;
-  distanceFromProject: string;
-  exifValid: boolean;
-  exifNotice: string;
+  /** Diisi server setelah foto diproses. Kosong selama backend belum tersambung. */
+  distanceFromProject?: string;
+  /** Hasil pemeriksaan EXIF oleh server. Kosong berarti belum diperiksa. */
+  exifValid?: boolean;
+  exifNotice?: string;
   narrative: string;
   proposedAddress: string;
   proposedPrecision?: PrecisionLevel;
   coordinates: { lat: number; lng: number };
   photoUrl: string;
+  photoUrls?: string[];
   votesAgree: number;
   votesDisagree: number;
   targetVotes: number;
   voters: string[];
   status: ReportStatus | ClaimStatus;
+  evidences?: EvidenceItem[];
 }
-
-/* ---- Tipe tambahan untuk state aplikasi (bukan dari spesifikasi inti) ---- */
 
 export interface CitizenReport {
   id: string;
@@ -140,6 +153,10 @@ export interface CitizenReport {
   spseCode: string;
   category: ReportCategory;
   narrative: string;
+  proposedAddress?: string;
+  photoUrls?: string[];
+  exifValid?: boolean;
+  distanceFromProject?: string;
   createdAt: string;
   status: ReportStatus;
 }
@@ -151,6 +168,7 @@ export interface CitizenClaim {
   spseCode: string;
   proposedAddress: string;
   proposedPrecision: PrecisionLevel;
+  photoUrl?: string;
   createdAt: string;
   status: ClaimStatus;
 }
@@ -159,9 +177,20 @@ export type VoteChoice = 'setuju' | 'tidak_setuju';
 
 export interface VoteRecord {
   itemId: string;
+  projectId?: string;
   projectTitle: string;
   itemType: VerificationItem['itemType'];
   authorDisplayName: string;
   choice: VoteChoice;
   votedAt: string;
+  resolution?: ReportStatus | ClaimStatus;
+}
+
+export interface UserProfile {
+  id: string;
+  displayName: string;
+  email: string;
+  emailVerified: boolean;
+  isActive: boolean;
+  createdAt: string;
 }
