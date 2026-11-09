@@ -162,9 +162,11 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Post("/location-claims/:claim_id/media", middleware.Bearer(manager, bl), claimHandlers.UploadClaimMedia)
 	v1.Delete("/location-claims/:claim_id/media/:media_id", middleware.Bearer(manager, bl), claimHandlers.DeleteClaimMedia)
 
-	// §5.5: unified verification queue endpoints.
+	// §5.5: unified verification queue and votes endpoints.
 	v1.Get("/verification-items", verificationHandlers.ListQueue)
 	v1.Get("/verification-items/:item_id", verificationHandlers.GetItem)
+	v1.Get("/verification-items/:item_id/votes", verificationHandlers.ListVotes)
+	v1.Post("/verification-items/:item_id/votes", middleware.Bearer(manager, bl), verificationHandlers.CastVote)
 
 return api{app: app}
 }

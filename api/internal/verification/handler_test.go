@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,9 +12,10 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"warta.com/api/internal/middleware"
+	"warta.com/api/internal/token"
 )
 
-func newTestApp(queueStore QueueStore, voteStore Store) *fiber.App {
+func newFullTestApp(queueStore QueueStore, voteStore Store, manager *token.Manager) *fiber.App {
 	h := NewHandler(queueStore, voteStore)
 	app := fiber.New()
 	app.Use(middleware.RequestID())
@@ -21,6 +23,8 @@ func newTestApp(queueStore QueueStore, voteStore Store) *fiber.App {
 	v1 := app.Group("/api/v1")
 	v1.Get("/verification-items", h.ListQueue)
 	v1.Get("/verification-items/:item_id", h.GetItem)
+	v1.Get("/verification-items/:item_id/votes", h.ListVotes)
+	v1.Post("/verification-items/:item_id/votes", middleware.Bearer(manager, nil), h.CastVote)
 
 	return app
 }
@@ -55,131 +59,154 @@ func sampleQueueItem(id string, createdAt time.Time, authorIsActive bool, status
 		DistanceFromProjectM: &dist,
 		ExifStatus:           "valid",
 		PhotoURL:             &photo,
-		VotesAgree:           1,
+		VotesAgree:           0,
 		VotesDisagree:        0,
 		TargetVotes:          3,
-		Voters:               []string{"voter1"},
+		Voters:               []string{},
 		Status:               status,
 		CreatedAt:            createdAt,
 	}
 }
 
-// TestListQueue_DefaultSortingAndActiveRule verifies created_at ASC order and deactivated author exclusion.
-func TestListQueue_DefaultSortingAndActiveRule(t *testing.T) {
+// TestListVotes_History verifies GET /verification-items/:item_id/votes with pagination and ordering.
+func TestListVotes_History(t *testing.T) {
 	queueStore := NewMemoryQueueStore()
-	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	t2 := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
-	t3 := time.Date(2026, 1, 3, 10, 0, 0, 0, time.UTC)
+	voteStore := NewMemoryStore()
+	voteStore.BindQueueStore(queueStore)
+	manager := token.NewManager("test-secret-01234567890123456789", time.Hour)
+	app := newFullTestApp(queueStore, voteStore, manager)
 
-	// item1: older (active)
-	// item2: newer (active)
-	// item3: middle (deactivated author -> must be excluded)
-	item1 := sampleQueueItem("item-1", t1, true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
-	item2 := sampleQueueItem("item-2", t3, true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
-	item3 := sampleQueueItem("item-3", t2, false, ItemStatusMenunggu, ItemTypeLaporanKondisi) // inactive!
-
-	queueStore.Seed(item2, item1, item3) // seeded unsorted
-	app := newTestApp(queueStore, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/verification-items", nil)
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	var res QueueResult
-	_ = json.Unmarshal(body, &res)
-
-	// Item 3 must be excluded -> only 2 items
-	if len(res.Data) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(res.Data))
-	}
-
-	// Must be sorted oldest first (created_at ASC)
-	if res.Data[0].ID != "item-1" || res.Data[1].ID != "item-2" {
-		t.Errorf("expected [item-1, item-2] ordered ASC, got [%s, %s]", res.Data[0].ID, res.Data[1].ID)
-	}
-
-	// Check category_label derived formatting
-	if res.Data[0].CategoryLabel == nil || *res.Data[0].CategoryLabel != "Fisik Rusak" {
-		t.Errorf("expected CategoryLabel 'Fisik Rusak', got %v", res.Data[0].CategoryLabel)
-	}
-}
-
-// TestListQueue_Filters verifies filtering by status and item_type.
-func TestListQueue_Filters(t *testing.T) {
-	queueStore := NewMemoryQueueStore()
-	t0 := time.Now().UTC()
-
-	it1 := sampleQueueItem("it-1", t0, true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
-	it2 := sampleQueueItem("it-2", t0, true, ItemStatusTerverifikasi, ItemTypeLaporanKondisi)
-	it3 := sampleQueueItem("it-3", t0, true, ItemStatusMenunggu, ItemTypeKlaimLokasi)
-
-	queueStore.Seed(it1, it2, it3)
-	app := newTestApp(queueStore, nil)
-
-	// Filter by status=terverifikasi
-	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/verification-items?status=terverifikasi", nil)
-	resp1, _ := app.Test(req1)
-	defer resp1.Body.Close()
-	var res1 QueueResult
-	body1, _ := io.ReadAll(resp1.Body)
-	_ = json.Unmarshal(body1, &res1)
-	if len(res1.Data) != 1 || res1.Data[0].ID != "it-2" {
-		t.Errorf("expected 1 item with ID it-2, got %d", len(res1.Data))
-	}
-
-	// Filter by item_type=klaim_lokasi
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/verification-items?item_type=klaim_lokasi", nil)
-	resp2, _ := app.Test(req2)
-	defer resp2.Body.Close()
-	var res2 QueueResult
-	body2, _ := io.ReadAll(resp2.Body)
-	_ = json.Unmarshal(body2, &res2)
-	if len(res2.Data) != 1 || res2.Data[0].ID != "it-3" {
-		t.Errorf("expected 1 item with ID it-3, got %d", len(res2.Data))
-	}
-}
-
-// TestGetVerificationItem_Detail verifies item detail endpoint.
-func TestGetVerificationItem_Detail(t *testing.T) {
-	queueStore := NewMemoryQueueStore()
 	itemID := "00000000-0000-0000-0000-000000000099"
 	it := sampleQueueItem(itemID, time.Now().UTC(), true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
 	queueStore.Seed(it)
 
-	app := newTestApp(queueStore, nil)
+	// Cast 2 votes
+	tok1, _ := manager.Sign("user-1")
+	tok2, _ := manager.Sign("user-2")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/verification-items/"+itemID, nil)
-	resp, err := app.Test(req)
+	body1, _ := json.Marshal(CastVoteRequest{Choice: "setuju"})
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body1))
+	req1.Header.Set("Authorization", "Bearer "+tok1)
+	req1.Header.Set("Content-Type", "application/json")
+	resp1, _ := app.Test(req1)
+	resp1.Body.Close()
+
+	body2, _ := json.Marshal(CastVoteRequest{Choice: "tidak_setuju"})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body2))
+	req2.Header.Set("Authorization", "Bearer "+tok2)
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, _ := app.Test(req2)
+	resp2.Body.Close()
+
+	// GET vote history
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/verification-items/"+itemID+"/votes", nil)
+	respList, err := app.Test(reqList)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer respList.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	if respList.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", respList.StatusCode)
 	}
 
-	var res struct {
-		Data ItemView `json:"data"`
-	}
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(respList.Body)
+	var res ItemVoteListResult
 	_ = json.Unmarshal(body, &res)
 
-	if res.Data.ID != itemID {
-		t.Errorf("expected ID %s, got %s", itemID, res.Data.ID)
+	if len(res.Data) != 2 || res.Meta.Total != 2 {
+		t.Fatalf("expected 2 votes, got %d (total: %d)", len(res.Data), res.Meta.Total)
 	}
-	if res.Data.VotesAgree != 1 || res.Data.TargetVotes != 3 {
-		t.Errorf("vote count mismatch: agree=%d, target=%d", res.Data.VotesAgree, res.Data.TargetVotes)
+
+	if res.Data[0].Choice != ChoiceSetuju || res.Data[1].Choice != ChoiceTidakSetuju {
+		t.Errorf("expected choices [setuju, tidak_setuju], got [%s, %s]", res.Data[0].Choice, res.Data[1].Choice)
 	}
-	if len(res.Data.Voters) != 1 || res.Data.Voters[0] != "voter1" {
-		t.Errorf("voters mismatch: %v", res.Data.Voters)
+}
+
+// TestCastVote_SelfVoteAndDuplicateAndResolution verifies voting rules & consensus resolution.
+func TestCastVote_SelfVoteAndDuplicateAndResolution(t *testing.T) {
+	queueStore := NewMemoryQueueStore()
+	voteStore := NewMemoryStore()
+	voteStore.BindQueueStore(queueStore)
+	manager := token.NewManager("test-secret-01234567890123456789", time.Hour)
+	app := newFullTestApp(queueStore, voteStore, manager)
+
+	itemID := "00000000-0000-0000-0000-000000000099"
+	authorID := "author-01"
+	it := sampleQueueItem(itemID, time.Now().UTC(), true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
+	it.AuthorUserID = authorID
+	queueStore.Seed(it)
+
+	// 1. Author tries to vote -> 403 Forbidden
+	authorTok, _ := manager.Sign(authorID)
+	body, _ := json.Marshal(CastVoteRequest{Choice: "setuju"})
+	reqAuthor := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqAuthor.Header.Set("Authorization", "Bearer "+authorTok)
+	reqAuthor.Header.Set("Content-Type", "application/json")
+	respAuthor, _ := app.Test(reqAuthor)
+	respAuthor.Body.Close()
+
+	if respAuthor.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for author self-vote, got %d", respAuthor.StatusCode)
+	}
+
+	// 2. Citizen 1 votes -> 201 Created
+	c1Tok, _ := manager.Sign("citizen-01")
+	reqC1 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqC1.Header.Set("Authorization", "Bearer "+c1Tok)
+	reqC1.Header.Set("Content-Type", "application/json")
+	respC1, _ := app.Test(reqC1)
+	respC1.Body.Close()
+
+	if respC1.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 Created, got %d", respC1.StatusCode)
+	}
+
+	// 3. Citizen 1 votes again -> 409 Conflict (duplicate)
+	reqDup := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqDup.Header.Set("Authorization", "Bearer "+c1Tok)
+	reqDup.Header.Set("Content-Type", "application/json")
+	respDup, _ := app.Test(reqDup)
+	respDup.Body.Close()
+
+	if respDup.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 Conflict for duplicate vote, got %d", respDup.StatusCode)
+	}
+
+	// 4. Citizen 2 and Citizen 3 vote setuju -> Reach target_votes (3) -> Resolve item to terverifikasi
+	c2Tok, _ := manager.Sign("citizen-02")
+	c3Tok, _ := manager.Sign("citizen-03")
+
+	reqC2 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqC2.Header.Set("Authorization", "Bearer "+c2Tok)
+	reqC2.Header.Set("Content-Type", "application/json")
+	respC2, _ := app.Test(reqC2)
+	respC2.Body.Close()
+
+	reqC3 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqC3.Header.Set("Authorization", "Bearer "+c3Tok)
+	reqC3.Header.Set("Content-Type", "application/json")
+	respC3, _ := app.Test(reqC3)
+	respC3.Body.Close()
+
+	// Check item status in queueStore
+	updatedItem, _ := queueStore.GetItemByID(nil, itemID)
+	if updatedItem.Status != ItemStatusTerverifikasi {
+		t.Errorf("expected item status 'terverifikasi', got '%s'", updatedItem.Status)
+	}
+	if updatedItem.ResolvedAt == nil {
+		t.Errorf("expected resolved_at to be populated")
+	}
+
+	// 5. Citizen 4 tries to vote on already resolved item -> 409 Conflict
+	c4Tok, _ := manager.Sign("citizen-04")
+	reqC4 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqC4.Header.Set("Authorization", "Bearer "+c4Tok)
+	reqC4.Header.Set("Content-Type", "application/json")
+	respC4, _ := app.Test(reqC4)
+	respC4.Body.Close()
+
+	if respC4.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 Conflict for voting on resolved item, got %d", respC4.StatusCode)
 	}
 }

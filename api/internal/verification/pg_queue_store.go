@@ -228,3 +228,4 @@ func (s *PGQueueStore) GetItemByID(ctx context.Context, itemID string) (*Verific
 	it.Voters = voters
 	return &it, nil
 }
+

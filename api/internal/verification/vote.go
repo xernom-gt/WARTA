@@ -1,11 +1,10 @@
 // Package verification models the unified verification queue (§3.11) and its
-// votes (§3.12). This milestone exposes only the caller's vote history
-// (GET /users/me/votes); the queue, voting, and writes arrive with the
-// verification milestone (TASK.md §Verification & Votes).
+// votes (§3.12).
 package verification
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"warta.com/api/internal/httpx"
@@ -20,16 +19,26 @@ const (
 	ChoiceTidakSetuju VoteChoice = "tidak_setuju"
 )
 
+// ParseVoteChoice parses a raw string choice.
+func ParseVoteChoice(raw string) (VoteChoice, bool) {
+	switch VoteChoice(raw) {
+	case ChoiceSetuju, ChoiceTidakSetuju:
+		return VoteChoice(raw), true
+	default:
+		return "", false
+	}
+}
+
 // VoteResolutionStatus is the union status of the voted item (§6.22): a
 // report resolves to terverifikasi/ditolak, a claim to diterima/ditolak.
 type VoteResolutionStatus string
 
 // Valid VoteResolutionStatus values (openapi VoteResolutionStatus).
 const (
-	ResolutionMenunggu    VoteResolutionStatus = "menunggu"
+	ResolutionMenunggu      VoteResolutionStatus = "menunggu"
 	ResolutionTerverifikasi VoteResolutionStatus = "terverifikasi"
-	ResolutionDitolak     VoteResolutionStatus = "ditolak"
-	ResolutionDiterima    VoteResolutionStatus = "diterima"
+	ResolutionDitolak       VoteResolutionStatus = "ditolak"
+	ResolutionDiterima      VoteResolutionStatus = "diterima"
 )
 
 // Resolution is the current outcome of the voted item (§7.5). It is always
@@ -44,21 +53,33 @@ type Resolution struct {
 
 // MyVote is the caller's vote plus the item's current outcome (§7.5).
 type MyVote struct {
-	ID                 string             `json:"id"`
-	VerificationItemID string             `json:"verification_item_id"`
-	ProjectID          string             `json:"project_id"`
-	ProjectTitle       string             `json:"project_title"`
-	ItemType           string             `json:"item_type"`
-	AuthorDisplayName  string             `json:"author_display_name"`
-	Choice             VoteChoice         `json:"choice"`
-	CreatedAt          string             `json:"created_at"`
-	Resolution         Resolution         `json:"resolution"`
+	ID                 string     `json:"id"`
+	VerificationItemID string     `json:"verification_item_id"`
+	ProjectID          string     `json:"project_id"`
+	ProjectTitle       string     `json:"project_title"`
+	ItemType           string     `json:"item_type"`
+	AuthorDisplayName  string     `json:"author_display_name"`
+	Choice             VoteChoice `json:"choice"`
+	CreatedAt          string     `json:"created_at"`
+	Resolution         Resolution `json:"resolution"`
+}
+
+// ItemVoteView is the public view of a cast vote (openapi Vote, §6.17).
+type ItemVoteView struct {
+	ID                 string     `json:"id"`
+	VerificationItemID string     `json:"verification_item_id"`
+	UserID             string     `json:"user_id"`
+	Choice             VoteChoice `json:"choice"`
+	CreatedAt          string     `json:"created_at"`
+}
+
+// ItemVoteListResult is the paginated response for GET /verification-items/{item_id}/votes.
+type ItemVoteListResult struct {
+	Data []ItemVoteView `json:"data"`
+	Meta Meta           `json:"meta"`
 }
 
 // Vote is a joined row behind MyVote, straight from the database columns.
-// VoterID carries the casting citizen for store-level filtering; it is an
-// internal projection detail and never rendered (§7.5 implies the caller
-// through /users/me).
 type Vote struct {
 	ID                 string
 	VoterID            string
@@ -97,6 +118,17 @@ func (v *Vote) View() MyVote {
 	}
 }
 
+// ItemView renders the openapi Vote shape.
+func (v *Vote) ItemView() ItemVoteView {
+	return ItemVoteView{
+		ID:                 v.ID,
+		VerificationItemID: v.VerificationItemID,
+		UserID:             v.VoterID,
+		Choice:             v.Choice,
+		CreatedAt:          httpx.ISO8601(v.CreatedAt),
+	}
+}
+
 // ListFilter carries the parsed query parameters of GET /users/me/votes.
 type ListFilter struct {
 	Page  int
@@ -132,9 +164,21 @@ type ListResult struct {
 	Meta Meta    `json:"meta"`
 }
 
-// Store reads votes for the /users/me family.
+// Business error sentinels (§6.17)
+var (
+	ErrDuplicateVote = errors.New("vote: duplicate vote")
+	ErrSelfVote      = errors.New("vote: cannot vote on own content")
+	ErrItemResolved  = errors.New("vote: verification item is already resolved")
+)
+
+// Store reads and writes votes.
 type Store interface {
 	// ListByUser lists the caller's votes, newest first, each carrying the
-	// voted item's *current* outcome (§6.22 — not a snapshot).
+	// voted item's current outcome (§6.22).
 	ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error)
+	// ListByItem lists votes for a specific verification item (§5.5).
+	ListByItem(ctx context.Context, itemID string, filter ListFilter) (*ItemVoteListResult, error)
+	// CastVote records a citizen's vote, performs atomic counter updates,
+	// and triggers automatic resolution upon reaching target_votes.
+	CastVote(ctx context.Context, itemID, userID string, choice VoteChoice) (*ItemVoteView, error)
 }

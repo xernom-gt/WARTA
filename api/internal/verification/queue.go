@@ -184,3 +184,4 @@ type QueueStore interface {
 	// GetItemByID returns one queue item with its photo and voter display names.
 	GetItemByID(ctx context.Context, itemID string) (*VerificationItem, error)
 }
+
