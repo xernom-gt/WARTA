@@ -25,82 +25,116 @@ export default function ProjectDetailModal() {
   const money = (c: string, f: string) => (compactRupiah ? c : f);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal aria-labelledby="detail-title">
-      <div className="max-h-[92vh] w-full max-w-3xl animate-slide-up overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/60 sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detail-title"
+    >
+      <div className="max-h-[92vh] w-full max-w-3xl animate-slide-up overflow-y-auto rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+        <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-slate-200 bg-white px-6 py-5">
           <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <StatusBadge status={p.status} size="md" />
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{p.category}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                {p.category}
+              </span>
             </div>
-            <h2 id="detail-title" className="text-xl font-extrabold text-slate-900">{p.title}</h2>
-            <p className="font-mono text-sm text-slate-500">Kode tender #{p.spseCode}</p>
+            <h2 id="detail-title" className="text-xl font-extrabold text-slate-900 sm:text-2xl">
+              {p.title}
+            </h2>
+            <p className="mt-0.5 font-mono text-sm text-slate-600">Kode tender #{p.spseCode}</p>
           </div>
-          <button id="detail-close" onClick={() => navigate('peta')} className="rounded-full p-2 hover:bg-slate-100" aria-label="Tutup detail">
+          <button
+            id="detail-close"
+            onClick={() => navigate('peta')}
+            className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+            aria-label="Tutup detail"
+          >
             <X className="size-5" />
           </button>
         </div>
 
-        <div className="space-y-6 p-5">
-          <p className="flex items-start gap-2 text-sm text-slate-700">
-            <Building2 className="mt-0.5 size-4 shrink-0 text-brand" />
+        <div className="space-y-8 p-6 sm:p-8">
+          <p className="flex items-start gap-2.5 text-base font-medium text-slate-800">
+            <Building2 className="mt-0.5 size-5 shrink-0 text-brand" />
             {p.satker}
           </p>
 
           {/* Anggaran */}
-          <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Anggaran</h3>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Money label="Pagu" value={money(p.paguCompact, p.paguFull)} strong />
-              <Money label="HPS" value={money(p.hpsCompact, p.hpsFull)} />
+          <section className="space-y-3">
+            <h3 className="text-base font-bold text-slate-900">Rincian Anggaran</h3>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Money label="Pagu Anggaran" value={money(p.paguCompact, p.paguFull)} strong />
+              <Money label="Nilai HPS" value={money(p.hpsCompact, p.hpsFull)} />
               {p.kontrakAvailable && p.kontrakCompact && p.kontrakFull ? (
                 <Money label="Nilai Kontrak" value={money(p.kontrakCompact, p.kontrakFull)} />
               ) : (
-                <div className="rounded-xl border border-dashed border-draft-border bg-draft-bg p-3">
-                  <p className="text-xs font-semibold text-slate-500">Nilai Kontrak</p>
-                  <p className="text-sm font-medium text-draft-text">{NO_CONTRACT}</p>
+                <div className="rounded-xl border border-dashed border-draft-border bg-draft-bg p-4">
+                  <p className="text-xs font-semibold text-slate-600">Nilai Kontrak</p>
+                  <p className="mt-1 text-sm font-medium text-draft-text">{NO_CONTRACT}</p>
                 </div>
               )}
             </div>
           </section>
 
           {/* Tahun */}
-          <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Tahun Anggaran</h3>
+          <section className="space-y-3">
+            <h3 className="text-base font-bold text-slate-900">Tahun Anggaran</h3>
             <div className="flex flex-wrap gap-2">
               {p.years.map((y) => (
-                <span key={y} className="rounded-full border border-action-border bg-action-bg px-3 py-1 text-sm font-semibold text-action-text">APBD {y}</span>
+                <span
+                  key={y}
+                  className="rounded-full border border-action-border bg-action-bg px-3.5 py-1 text-sm font-semibold text-action-text"
+                >
+                  APBD {y}
+                </span>
               ))}
             </div>
-            {p.multiYearsMicrocopy && <p className="mt-2 text-sm text-slate-600">{p.multiYearsMicrocopy}</p>}
+            {p.multiYearsMicrocopy && <p className="text-sm text-slate-600">{p.multiYearsMicrocopy}</p>}
           </section>
 
           {/* Lokasi */}
-          <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Lokasi</h3>
-            <div className="rounded-xl border border-slate-200 p-3 text-sm">
-              <p className="flex items-start gap-2 font-medium"><MapPinned className="mt-0.5 size-4 shrink-0 text-brand" />{p.locationDesc}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold">{p.precisionBadge}</span>
-                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${p.locationSource === 'warga' ? 'bg-ok-bg text-ok-text' : 'bg-slate-100 text-slate-600'}`}>
+          <section className="space-y-3">
+            <h3 className="text-base font-bold text-slate-900">Lokasi & Presisi</h3>
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-sm">
+              <p className="flex items-start gap-2 text-base font-semibold text-slate-900">
+                <MapPinned className="mt-0.5 size-5 shrink-0 text-brand" />
+                {p.locationDesc}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  {p.precisionBadge}
+                </span>
+                <span
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
+                    p.locationSource === 'warga'
+                      ? 'bg-ok-bg text-ok-text'
+                      : 'bg-white text-slate-700 ring-1 ring-slate-200'
+                  }`}
+                >
                   Sumber: {p.locationSource === 'warga' ? 'Warga' : 'SPSE'}
                 </span>
               </div>
-              {p.precisionMicrocopy && <p className="mt-2 text-slate-600">{p.precisionMicrocopy}</p>}
-              {p.precisionResolutionNote && <p className="mt-2 rounded-lg bg-action-bg p-2 text-action-text">{p.precisionResolutionNote}</p>}
-              {p.canonicalMicrocopy && <p className="mt-2 rounded-lg bg-ok-bg p-2 font-medium text-ok-text">{p.canonicalMicrocopy}</p>}
+              {p.precisionMicrocopy && <p className="text-slate-600">{p.precisionMicrocopy}</p>}
+              {p.precisionResolutionNote && (
+                <p className="rounded-lg bg-action-bg p-3 text-action-text">{p.precisionResolutionNote}</p>
+              )}
+              {p.canonicalMicrocopy && (
+                <p className="rounded-lg bg-ok-bg p-3 font-medium text-ok-text">{p.canonicalMicrocopy}</p>
+              )}
             </div>
             {p.subLocations && (
-              <div className="mt-3">
+              <div className="pt-2">
                 <SubLocationTabs locations={p.subLocations} microcopy={p.subLocationsMicrocopy} />
               </div>
             )}
           </section>
 
           {/* Risiko */}
-          <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Indikator Risiko Kontrak</h3>
+          <section className="space-y-3">
+            <h3 className="text-base font-bold text-slate-900">Indikator Risiko Kontrak</h3>
             <ContractRiskBadges flags={p.riskFlags} />
           </section>
 
@@ -109,20 +143,27 @@ export default function ProjectDetailModal() {
           )}
 
           {/* Laporan */}
-          <section>
-            <h3 className="mb-2 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-              <Users className="size-4" /> Laporan Warga ({p.reportsCount})
+          <section className="space-y-3">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <Users className="size-5 text-brand" /> Laporan Warga ({reports.length})
             </h3>
             {reports.length === 0 ? (
-              <p className="text-sm text-slate-500">Belum ada laporan di antrean untuk paket ini.</p>
+              <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                Belum ada laporan warga di antrean untuk paket proyek ini.
+              </p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-3">
                 {reports.map((r) => (
-                  <li key={r.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-3 text-sm">
-                    <div>
-                      <p className="font-semibold">{r.categoryLabel}</p>
-                      <p className="text-slate-600">{r.narrative}</p>
-                      <p className="mt-1 text-xs text-slate-500">{r.authorDisplayName} • {r.createdAt}</p>
+                  <li
+                    key={r.id}
+                    className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 p-4 text-sm"
+                  >
+                    <div className="space-y-1">
+                      <p className="font-bold text-slate-900">{r.categoryLabel}</p>
+                      <p className="leading-relaxed text-slate-700">{r.narrative}</p>
+                      <p className="text-xs text-slate-600">
+                        {r.authorDisplayName} · {r.createdAt}
+                      </p>
                     </div>
                     <StatusBadge status={r.status} />
                   </li>
@@ -133,22 +174,29 @@ export default function ProjectDetailModal() {
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
-          <p className="mb-3 flex items-center gap-1.5 text-xs text-slate-500"><Database className="size-3.5" />{p.sourceNote}</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button id="detail-report" onClick={() => navigate('lapor', p.id)} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 font-semibold text-white transition hover:bg-brand-dark">
-              <Camera className="size-4" /> Laporkan Kondisi
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white px-6 py-4">
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-slate-600">
+            <Database className="size-3.5" />
+            {p.sourceNote}
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              id="detail-report"
+              onClick={() => navigate('lapor', p.id)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 text-base font-bold text-white transition hover:bg-brand-dark"
+            >
+              <Camera className="size-5" /> Laporkan Kondisi Proyek
             </button>
             <button
               id="detail-claim"
               onClick={() => navigate('klaim', p.id)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border-2 py-3 font-semibold transition ${
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border-2 py-3 text-base font-semibold transition ${
                 p.isRoughArea && !p.isCanonicalClaimed
-                  ? 'animate-pulse-soft border-action-border bg-action-bg text-action-text hover:bg-sky-100'
+                  ? 'border-action-border bg-action-bg text-action-text hover:bg-sky-100'
                   : 'border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <MapPinned className="size-4" /> Klaim Lokasi
+              <MapPinned className="size-5" /> Klaim Titik Lokasi
             </button>
           </div>
         </div>
@@ -159,9 +207,13 @@ export default function ProjectDetailModal() {
 
 function Money({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className={`rounded-xl border p-3 ${strong ? 'border-brand bg-brand text-white' : 'border-slate-200 bg-slate-50'}`}>
-      <p className={`text-xs font-semibold ${strong ? 'text-sky-200' : 'text-slate-500'}`}>{label}</p>
-      <p className="break-words text-lg font-extrabold">{value}</p>
+    <div
+      className={`rounded-xl border p-4 ${
+        strong ? 'border-brand bg-brand text-white' : 'border-slate-200 bg-slate-50'
+      }`}
+    >
+      <p className={`text-xs font-semibold ${strong ? 'text-sky-100' : 'text-slate-600'}`}>{label}</p>
+      <p className="mt-1 break-words text-lg font-extrabold tabular-nums">{value}</p>
     </div>
   );
 }

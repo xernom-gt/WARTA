@@ -4,7 +4,7 @@
 @theme {
   --font-sans: 'Inter', system-ui, sans-serif;
 
-  /* Token warna WARTA (Bagian 4 spesifikasi) */
+  /* Token warna WARTA */
   --color-brand: #1f3b57;
   --color-brand-dark: #0f2438;
   --color-action-bg: #e0f2fe;
@@ -85,4 +85,36 @@ body::-webkit-scrollbar {
 }
 *::-webkit-scrollbar-thumb:hover {
   background: rgb(31 59 87 / 0.55);
+}
+
+/* Kursor interaktif & aksesibilitas fokus */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+select:not(:disabled),
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid #0369a1;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

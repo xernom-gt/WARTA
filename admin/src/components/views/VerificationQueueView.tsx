@@ -1,17 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft,
+  AlertTriangle,
   ArrowUpDown,
+  FilePlus2,
   ImageOff,
   Inbox,
-  ListFilter,
+  Loader2,
+  Map,
   MapPin,
   Search,
   ThumbsDown,
   ThumbsUp,
-  Users,
+  UserRound,
+  X,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
+import { DATASET_SUMMARY } from '../../data/wartaData';
 import { cn } from '@/lib/utils';
 import type { VerificationItem } from '../../types/warta';
 import ExifCheckBadge from '../common/ExifCheckBadge';
@@ -34,7 +38,7 @@ const TYPE_LABEL: Record<VerificationItem['itemType'], string> = {
 };
 
 export default function VerificationQueueView() {
-  const { queue, vote, canVote } = useWarta();
+  const { queue, vote, canVote, navigate, mapCondition, setMapCondition } = useWarta();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -47,7 +51,7 @@ export default function VerificationQueueView() {
     const filtered = queue.filter((it) => {
       const matchTerm =
         !term ||
-        [it.projectTitle, it.spseCode, it.authorDisplayName, it.satker, it.categoryLabel].some((v) =>
+        [it.projectTitle, it.spseCode, it.authorDisplayName, it.satker, it.categoryLabel, it.narrative].some((v) =>
           v.toLowerCase().includes(term),
         );
       const matchType = type === 'semua' || it.itemType === type;
@@ -60,11 +64,18 @@ export default function VerificationQueueView() {
   }, [queue, q, type, status, sort]);
 
   const pendingCount = queue.filter((it) => it.status === 'menunggu').length;
-  // Jika item terpilih tersaring keluar, kembalikan ke mode daftar agar tidak ada panel kosong.
-  const selectedId = activeId && list.some((it) => it.id === activeId) ? activeId : null;
-  const active = list.find((it) => it.id === selectedId) ?? list[0] ?? null;
-  const detailOpen = selectedId !== null;
+  const verifiedCount = queue.filter((it) => it.status === 'terverifikasi' || it.status === 'diterima').length;
+  const active = activeId ? queue.find((it) => it.id === activeId) ?? null : null;
   const filterActive = type !== 'semua' || status !== 'semua' || sort !== 'default' || q.trim() !== '';
+
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active]);
 
   const resetFilter = () => {
     setQ('');
@@ -74,38 +85,73 @@ export default function VerificationQueueView() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-4 sm:px-6 sm:py-6">
-      {/* Kepala halaman */}
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <p className="text-xs font-bold tracking-widest text-action-border uppercase">Panel Warga</p>
-          <h1 className="text-lg font-extrabold tracking-tight text-slate-900 sm:text-xl">
-            Antrean Verifikasi
+    <div className="mx-auto w-full max-w-7xl flex-1 space-y-10 px-4 py-10 sm:px-6 sm:py-12">
+      <section className="flex flex-col justify-between gap-6 border-b border-slate-200 pb-8 lg:flex-row lg:items-end">
+        <div className="max-w-2xl space-y-3">
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+            Aduan & Verifikasi Warga
           </h1>
+          <p className="text-base leading-relaxed text-slate-600">
+            Pantau laporan kondisi fisik dan klaim lokasi proyek pemerintah secara terbuka. Setiap aduan diverifikasi bersama melalui kuorum 3 suara warga.
+          </p>
         </div>
-        <p className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
-          <Users className="size-3.5 text-action-border" />
-          {pendingCount} menunggu · kuorum 3 suara
-        </p>
-      </div>
 
-      {/* Toolbar filter */}
-      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-2.5 shadow-sm sm:p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-300 px-2.5 transition-colors focus-within:border-action-border focus-within:ring-2 focus-within:ring-action-border/30">
-            <Search className="size-4 shrink-0 text-slate-400" />
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            id="cta-create-report"
+            onClick={() => navigate('lapor')}
+            className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-brand px-5 py-3 text-base font-bold text-white shadow-xs transition hover:bg-brand-dark"
+          >
+            <FilePlus2 className="size-5 shrink-0" />
+            + Buat Pengaduan
+          </button>
+          <button
+            id="cta-open-map"
+            onClick={() => navigate('peta')}
+            className="inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-base font-semibold text-slate-800 transition hover:bg-slate-100"
+          >
+            <Map className="size-5 shrink-0 text-brand" />
+            Proyek & Peta
+          </button>
+        </div>
+      </section>
+
+      <section aria-label="Ringkasan transparansi aduan" className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+        <div className="border-l-2 border-brand pl-4">
+          <p className="text-3xl font-black text-slate-900 tabular-nums">{queue.length}</p>
+          <p className="mt-1 text-sm font-medium text-slate-600">Total Aduan Masuk</p>
+        </div>
+        <div className="border-l-2 border-wait-border pl-4">
+          <p className="text-3xl font-black text-wait-text tabular-nums">{pendingCount}</p>
+          <p className="mt-1 text-sm font-medium text-slate-600">Menunggu Kuorum (3 Suara)</p>
+        </div>
+        <div className="border-l-2 border-ok-border pl-4">
+          <p className="text-3xl font-black text-ok-text tabular-nums">{verifiedCount}</p>
+          <p className="mt-1 text-sm font-medium text-slate-600">Terverifikasi Warga</p>
+        </div>
+        <div className="border-l-2 border-slate-300 pl-4">
+          <p className="text-3xl font-black text-slate-900 tabular-nums">{DATASET_SUMMARY.uniqueProjects}</p>
+          <p className="mt-1 text-sm font-medium text-slate-600">Paket Proyek SPSE</p>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-slate-300 bg-slate-50/60 px-3.5 transition-colors focus-within:border-action-border focus-within:bg-white focus-within:ring-2 focus-within:ring-action-border/30">
+            <Search className="size-4 shrink-0 text-slate-500" />
             <input
               id="verify-search"
+              aria-label="Cari aduan warga"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Cari paket, kode tender, atau pelapor…"
-              className="w-full min-w-0 bg-transparent py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400"
+              placeholder="Cari nama proyek, isi laporan, kode tender, atau pelapor…"
+              className="w-full min-w-0 bg-transparent py-2.5 text-base text-slate-900 outline-none placeholder:text-slate-500"
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:flex lg:items-center">
             <Select value={type} onValueChange={(v) => setType(v as TypeFilter)}>
-              <SelectTrigger id="verify-type" aria-label="Jenis kiriman" className="sm:w-[9.5rem]">
+              <SelectTrigger id="verify-type" aria-label="Filter jenis kiriman" className="h-11 sm:w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -116,7 +162,7 @@ export default function VerificationQueueView() {
             </Select>
 
             <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
-              <SelectTrigger id="verify-status" aria-label="Status verifikasi" className="sm:w-[9.5rem]">
+              <SelectTrigger id="verify-status" aria-label="Filter status verifikasi" className="h-11 sm:w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -129,14 +175,14 @@ export default function VerificationQueueView() {
             </Select>
 
             <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-              <SelectTrigger id="verify-sort" aria-label="Urutkan" className="col-span-2 sm:w-[9.5rem]">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <ArrowUpDown className="size-3.5 shrink-0 text-slate-400" />
+              <SelectTrigger id="verify-sort" aria-label="Urutkan daftar aduan" className="h-11 sm:w-48">
+                <span className="flex min-w-0 items-center gap-2">
+                  <ArrowUpDown className="size-4 shrink-0 text-slate-500" />
                   <SelectValue />
                 </span>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">Urutan asli</SelectItem>
+                <SelectItem value="default">Terbaru</SelectItem>
                 <SelectItem value="dukungan">Dukungan terbanyak</SelectItem>
                 <SelectItem value="kontra">Penolakan terbanyak</SelectItem>
               </SelectContent>
@@ -144,12 +190,12 @@ export default function VerificationQueueView() {
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
-          <span className="flex items-center gap-1.5">
-            <ListFilter className="size-3.5" />
-            {list.length} dari {queue.length} kiriman
-          </span>
-          {filterActive && (
+        {filterActive && (
+          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm text-slate-600">
+            <span>
+              Menampilkan <b className="font-semibold text-slate-900 tabular-nums">{list.length}</b> dari{' '}
+              <span className="tabular-nums">{queue.length}</span> kiriman warga
+            </span>
             <button
               id="verify-reset"
               onClick={resetFilter}
@@ -157,188 +203,232 @@ export default function VerificationQueueView() {
             >
               Reset filter
             </button>
-          )}
+          </div>
+        )}
+      </section>
+
+      {mapCondition === 'loading' ? (
+        <div
+          role="status"
+          className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center"
+        >
+          <Loader2 className="mb-3 size-8 animate-spin text-brand" />
+          <p className="text-base font-bold text-slate-900">Memuat daftar aduan warga…</p>
+          <p className="mt-1 text-sm text-slate-600">Menyinkronkan kiriman terbaru dari antrean verifikasi publik.</p>
         </div>
-      </div>
-
-      {/* Master-detail */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        {/* Daftar */}
-        <ul className="space-y-2 lg:w-[21rem] lg:shrink-0">
-          {list.length === 0 && (
-            <li className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
-              <span className="mb-3 grid size-12 place-items-center rounded-full bg-slate-100">
-                <Inbox className="size-6 text-slate-400" />
-              </span>
-              <p className="text-sm font-bold text-slate-800">Tidak ada kiriman</p>
-              <p className="mt-1 max-w-[16rem] text-xs text-slate-500">
-                Longgarkan kata kunci atau filter jenis dan status.
-              </p>
-              {filterActive && (
-                <button
-                  onClick={resetFilter}
-                  className="mt-3 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
-                >
-                  Reset filter
-                </button>
-              )}
-            </li>
-          )}
-
-          {list.map((it) => {
-            const isActive = active?.id === it.id;
-            return (
-              <li key={it.id}>
+      ) : mapCondition === 'tile-error' ? (
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center rounded-2xl border border-bad-border bg-bad-bg px-6 py-12 text-center text-bad-text"
+        >
+          <AlertTriangle className="mb-3 size-8" />
+          <p className="text-base font-bold">Gagal memuat antrean verifikasi</p>
+          <p className="mt-1 max-w-md text-sm">
+            Terjadi gangguan saat mengambil data kiriman warga. Silakan muat ulang antrean.
+          </p>
+          <button
+            onClick={() => setMapCondition('normal')}
+            className="mt-4 rounded-xl bg-bad-text px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Coba Muat Ulang
+          </button>
+        </div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+          <span className="mb-4 grid size-14 place-items-center rounded-full bg-slate-100 text-slate-600">
+            <Inbox className="size-7" />
+          </span>
+          <h2 className="text-lg font-bold text-slate-900">
+            {queue.length === 0 ? 'Belum ada aduan warga yang masuk' : 'Tidak ada kiriman yang cocok'}
+          </h2>
+          <p className="mt-2 max-w-md text-base leading-relaxed text-slate-600">
+            {queue.length === 0
+              ? 'Jadilah warga pertama yang mengirim laporan kondisi fisik atau klaim titik lokasi proyek di sekitar tempat tinggal Anda.'
+              : 'Longgarkan kata kunci pencarian atau atur ulang filter jenis dan status di atas.'}
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            {filterActive ? (
+              <button
+                onClick={resetFilter}
+                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+              >
+                Reset Filter
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('lapor')}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-base font-bold text-white hover:bg-brand-dark"
+              >
+                <FilePlus2 className="size-5" />
+                + Buat Pengaduan Pertama
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <ul className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+          {list.map((it) => (
+            <li key={it.id} className="flex">
+              <article className="group flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs transition hover:border-slate-300 hover:shadow-md">
                 <button
                   id={`queue-${it.id}`}
+                  type="button"
                   onClick={() => setActiveId(it.id)}
-                  aria-current={isActive ? 'true' : undefined}
-                  className={cn(
-                    'group w-full rounded-xl border bg-white p-3 text-left transition-all',
-                    'focus-visible:ring-2 focus-visible:ring-action-border focus-visible:ring-offset-2 focus-visible:outline-none',
-                    isActive
-                      ? 'border-brand/40 shadow-sm ring-1 ring-brand/15'
-                      : 'border-slate-200/80 hover:border-slate-300 hover:shadow-sm',
-                  )}
+                  className="flex flex-1 flex-col text-left focus-visible:outline-none"
                 >
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-semibold text-slate-500">
-                      {TYPE_LABEL[it.itemType]}
-                    </span>
-                    <StatusBadge status={it.status} />
-                  </div>
-                  <p className="line-clamp-2 text-sm leading-snug font-bold text-slate-900">
-                    {it.projectTitle}
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-xs text-slate-500">#{it.spseCode}</p>
-
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <Quorum
-                      agree={it.votesAgree}
-                      disagree={it.votesDisagree}
-                      target={it.targetVotes}
-                      compact
-                    />
-                    <span className="shrink-0 text-xs font-semibold text-slate-600 tabular-nums">
-                      {it.votesAgree}/{it.targetVotes}
-                    </span>
-                  </div>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* Detail */}
-        {active ? (
-          <article
-            className={cn(
-              'min-w-0 flex-1',
-              detailOpen
-                ? 'fixed inset-0 z-50 overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:static lg:z-auto lg:overflow-visible lg:bg-transparent lg:p-0'
-                : 'hidden lg:block',
-            )}
-          >
-            <div className="mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
-              {/* Bar atas detail */}
-              <div className="flex items-start gap-3 border-b border-slate-100 p-3 sm:p-4">
-                <button
-                  onClick={() => setActiveId(null)}
-                  className="-ml-1 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-action-border focus-visible:outline-none lg:hidden"
-                  aria-label="Kembali ke daftar"
-                >
-                  <ArrowLeft className="size-4" />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-bold text-slate-600">
-                      {TYPE_LABEL[active.itemType]}
-                    </span>
-                    <span className="truncate text-xs text-slate-500">{active.categoryLabel}</span>
-                  </div>
-                  <h2 className="text-base leading-snug font-extrabold text-slate-900 sm:text-lg">
-                    {active.projectTitle}
-                  </h2>
-                  <p className="mt-0.5 truncate text-xs text-slate-500 sm:text-xs">
-                    <span className="font-mono">#{active.spseCode}</span> · {active.satker}
-                  </p>
-                </div>
-                <div className="shrink-0">
-                  <StatusBadge status={active.status} />
-                </div>
-              </div>
-
-              <div className="space-y-3.5 p-3 sm:p-4">
-                <Photo src={active.photoUrl} alt={`Foto bukti ${active.projectTitle}`} />
-
-                <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                  <Field label="Pelapor" value={active.authorDisplayName} strong />
-                  <Field label="Dikirim" value={active.createdAt} />
-                  <div className="col-span-2 flex items-start gap-1.5 text-slate-600">
-                    <MapPin className="mt-0.5 size-3.5 shrink-0 text-brand" />
-                    <span className="min-w-0">{active.distanceFromProject}</span>
-                  </div>
-                  {active.itemType === 'klaim_lokasi' && (
-                    <div className="col-span-2 rounded-lg bg-slate-50 px-2.5 py-2 text-slate-700">
-                      <p className="mb-0.5 text-xs font-semibold text-slate-500">Usulan lokasi</p>
-                      <p className="leading-relaxed">{active.proposedAddress}</p>
+                  <div className="relative aspect-16/10 w-full overflow-hidden bg-slate-100">
+                    <CardPhoto src={it.photoUrl} alt={`Foto lapangan ${it.projectTitle}`} />
+                    <div className="absolute top-3 left-3">
+                      <StatusBadge status={it.status} />
                     </div>
-                  )}
-                </dl>
+                  </div>
 
-                <ExifCheckBadge valid={active.exifValid} />
+                  <div className="flex flex-1 flex-col justify-between gap-4 p-6">
+                    <div className="space-y-2.5">
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700">
+                          {TYPE_LABEL[it.itemType]}
+                        </span>
+                        <span>·</span>
+                        <span>{it.categoryLabel}</span>
+                      </div>
 
-                <p className="rounded-lg border-l-2 border-slate-300 bg-slate-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700">
+                      <h2 className="line-clamp-2 text-lg leading-snug font-bold text-slate-900 group-hover:text-brand">
+                        {it.projectTitle}
+                      </h2>
+
+                      <p className="line-clamp-3 text-base leading-relaxed text-slate-700">
+                        {it.narrative}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-600">
+                      <p className="flex items-center gap-1.5 truncate">
+                        <MapPin className="size-4 shrink-0 text-brand" />
+                        <span className="truncate">{it.proposedAddress}</span>
+                      </p>
+
+                      <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
+                        <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                          <UserRound className="size-3.5 text-slate-500" />
+                          {it.authorDisplayName}
+                        </span>
+                        <span>{it.createdAt}</span>
+                      </div>
+
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                          <span>Kuorum Verifikasi</span>
+                          <span className="tabular-nums">
+                            {it.votesAgree}/{it.targetVotes} setuju
+                          </span>
+                        </div>
+                        <Quorum
+                          agree={it.votesAgree}
+                          disagree={it.votesDisagree}
+                          target={it.targetVotes}
+                          compact
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </article>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {active && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="verify-detail-title"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 sm:items-center sm:p-4"
+        >
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <StatusBadge status={active.status} />
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">
+                    {TYPE_LABEL[active.itemType]}
+                  </span>
+                  <span className="text-xs font-medium text-slate-600">{active.categoryLabel}</span>
+                </div>
+                <h2 id="verify-detail-title" className="text-xl leading-snug font-extrabold text-slate-900">
+                  {active.projectTitle}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Kode Tender <span className="font-mono font-semibold">#{active.spseCode}</span> · {active.satker}
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveId(null)}
+                aria-label="Tutup detail aduan"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6 p-6">
+              <ModalPhoto src={active.photoUrl} alt={`Foto bukti ${active.projectTitle}`} />
+
+              <dl className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-semibold text-slate-600">Pelapor</dt>
+                  <dd className="mt-0.5 font-bold text-slate-900">{active.authorDisplayName}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-slate-600">Waktu Kirim</dt>
+                  <dd className="mt-0.5 font-medium text-slate-800">{active.createdAt}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-semibold text-slate-600">Lokasi Terlapor</dt>
+                  <dd className="mt-0.5 flex items-start gap-1.5 text-slate-800">
+                    <MapPin className="mt-0.5 size-4 shrink-0 text-brand" />
+                    <span>
+                      {active.proposedAddress}
+                      {active.distanceFromProject ? ` (${active.distanceFromProject})` : ''}
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+
+              {typeof active.exifValid === 'boolean' && <ExifCheckBadge valid={active.exifValid} />}
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-bold text-slate-900">Catatan Lapangan Warga</h3>
+                <p className="rounded-xl border border-slate-200 bg-white p-4 text-base leading-relaxed text-slate-800">
                   {active.narrative}
                 </p>
+              </div>
 
-                {/* Kuorum */}
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-baseline justify-between gap-2">
-                    <p className="text-xs font-bold tracking-wide text-slate-500 uppercase">Kuorum warga</p>
-                    <p className="text-xs font-semibold text-slate-600 tabular-nums">
-                      {active.votesAgree} setuju · {active.votesDisagree} tolak
-                    </p>
-                  </div>
-                  <Quorum
-                    agree={active.votesAgree}
-                    disagree={active.votesDisagree}
-                    target={active.targetVotes}
-                  />
-                  <p className="mt-2 text-xs text-slate-500">
-                    {active.status !== 'menunggu'
-                      ? 'Verifikasi untuk kiriman ini sudah selesai.'
-                      : `Butuh ${Math.max(0, active.targetVotes - active.votesAgree)} suara setuju lagi untuk terverifikasi.`}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-900">Kuorum Verifikasi Warga</p>
+                  <p className="text-xs font-semibold text-slate-700 tabular-nums">
+                    {active.votesAgree} setuju · {active.votesDisagree} tidak setuju (target {active.targetVotes})
                   </p>
                 </div>
-
-                <VoteButtons id={active.id} check={canVote(active)} onVote={(c) => vote(active.id, c)} />
+                <Quorum
+                  agree={active.votesAgree}
+                  disagree={active.votesDisagree}
+                  target={active.targetVotes}
+                />
+                <p className="mt-2 text-xs text-slate-600">
+                  {active.status !== 'menunggu'
+                    ? 'Verifikasi untuk kiriman ini sudah selesai.'
+                    : `Butuh ${Math.max(0, active.targetVotes - active.votesAgree)} suara setuju lagi agar berstatus Terverifikasi.`}
+                </p>
               </div>
-            </div>
-          </article>
-        ) : (
-          <article className="hidden flex-1 lg:block">
-            <div className="grid h-full min-h-[16rem] place-items-center rounded-xl border border-dashed border-slate-300 bg-white/60 px-6 py-12 text-center">
-              <div>
-                <span className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-slate-100">
-                  <Inbox className="size-6 text-slate-400" />
-                </span>
-                <p className="text-sm font-bold text-slate-800">Pilih kiriman</p>
-                <p className="mt-1 text-xs text-slate-500">Detail akan tampil di panel ini.</p>
-              </div>
-            </div>
-          </article>
-        )}
-      </div>
-    </div>
-  );
-}
 
-function Field({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs font-semibold text-slate-500">{label}</dt>
-      <dd className={cn('truncate text-slate-700', strong && 'font-semibold text-slate-900')}>{value}</dd>
+              <VoteButtons id={active.id} check={canVote(active)} onVote={(c) => vote(active.id, c)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -357,7 +447,7 @@ function Quorum({
   const total = Math.max(target, agree + disagree, 1);
   return (
     <div
-      className={cn('flex gap-1', compact ? 'h-1 flex-1' : 'h-1.5 w-full')}
+      className={cn('flex gap-1.5', compact ? 'h-1.5 w-full' : 'h-2 w-full')}
       role="img"
       aria-label={`${agree} setuju, ${disagree} tidak setuju, target ${target} suara`}
     >
@@ -384,42 +474,42 @@ function VoteButtons({
   onVote: (c: 'setuju' | 'tidak_setuju') => void;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {!check.allowed && check.reason && (
         <p
           role="alert"
-          className="rounded-lg border border-wait-border bg-wait-bg px-2.5 py-2 text-xs leading-relaxed font-medium text-wait-text"
+          className="rounded-xl border border-wait-border bg-wait-bg px-3.5 py-2.5 text-sm leading-relaxed font-medium text-wait-text"
         >
           {check.reason}
         </p>
       )}
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <button
           id={`agree-${id}`}
           disabled={!check.allowed}
           onClick={() => onVote('setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-ok-border bg-ok-bg px-3 text-sm font-semibold text-ok-text transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-ok-border focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
+          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-ok-border bg-ok-bg px-4 text-sm font-bold text-ok-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
         >
-          <ThumbsUp className="size-4 shrink-0" /> Setuju
+          <ThumbsUp className="size-4 shrink-0" /> Setuju (Sesuai Lapangan)
         </button>
         <button
           id={`disagree-${id}`}
           disabled={!check.allowed}
           onClick={() => onVote('tidak_setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-bad-border bg-bad-bg px-3 text-sm font-semibold text-bad-text transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-bad-border focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
+          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-bad-border bg-bad-bg px-4 text-sm font-bold text-bad-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
         >
-          <ThumbsDown className="size-4 shrink-0" /> Tidak setuju
+          <ThumbsDown className="size-4 shrink-0" /> Tidak Setuju
         </button>
       </div>
     </div>
   );
 }
 
-function Photo({ src, alt }: { src: string; alt: string }) {
+function CardPhoto({ src, alt }: { src: string; alt: string }) {
   const [err, setErr] = useState(false);
   if (err)
     return (
-      <div className="flex aspect-[16/10] max-h-64 items-center justify-center gap-2 rounded-lg bg-slate-100 text-xs text-slate-500">
+      <div className="flex h-full w-full items-center justify-center gap-2 bg-slate-100 text-xs text-slate-600">
         <ImageOff className="size-4" /> Foto tidak dapat dimuat
       </div>
     );
@@ -428,7 +518,25 @@ function Photo({ src, alt }: { src: string; alt: string }) {
       src={src}
       alt={alt}
       onError={() => setErr(true)}
-      className="aspect-[16/10] max-h-64 w-full rounded-lg border border-slate-100 bg-slate-50 object-cover"
+      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+    />
+  );
+}
+
+function ModalPhoto({ src, alt }: { src: string; alt: string }) {
+  const [err, setErr] = useState(false);
+  if (err)
+    return (
+      <div className="flex aspect-16/10 max-h-72 items-center justify-center gap-2 rounded-xl bg-slate-100 text-sm text-slate-600">
+        <ImageOff className="size-4" /> Foto tidak dapat dimuat
+      </div>
+    );
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setErr(true)}
+      className="aspect-16/10 max-h-80 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
     />
   );
 }

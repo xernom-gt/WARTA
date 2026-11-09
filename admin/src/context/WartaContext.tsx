@@ -15,6 +15,7 @@ import {
   INITIAL_MY_REPORTS,
   INITIAL_VERIFICATION_QUEUE,
   INITIAL_VOTE_HISTORY,
+  SAMPLE_DATA,
 } from '../data/wartaData';
 
 interface WartaState {
@@ -48,16 +49,16 @@ interface WartaContextValue extends WartaState {
 }
 
 const initialState = (): WartaState => ({
-  currentUser: CURRENT_USER,
-  role: 'other',
+  currentUser: SAMPLE_DATA ? CURRENT_USER : null,
+  role: SAMPLE_DATA ? 'other' : 'guest',
   mapCondition: 'normal',
-  activeScreen: 'peta',
+  activeScreen: 'verifikasi',
   selectedProjectId: null,
   compactRupiah: true,
-  queue: structuredClone(INITIAL_VERIFICATION_QUEUE),
-  myReports: structuredClone(INITIAL_MY_REPORTS),
-  myClaims: structuredClone(INITIAL_MY_CLAIMS),
-  voteHistory: structuredClone(INITIAL_VOTE_HISTORY),
+  queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
+  myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
+  myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
+  voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
   loginOpen: false,
 });
 
@@ -90,25 +91,39 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       setState((s) => {
         const user = s.currentUser;
         if (!user) return s;
-        let record: VoteRecord | null = null;
-        const queue = s.queue.map((it) => {
-          if (it.id !== itemId || it.voters.includes(user) || it.status !== 'menunggu') return it;
-          const votesAgree = it.votesAgree + (choice === 'setuju' ? 1 : 0);
-          const votesDisagree = it.votesDisagree + (choice === 'tidak_setuju' ? 1 : 0);
-          let status: VerificationItem['status'] = it.status;
-          if (votesAgree >= it.targetVotes) status = it.itemType === 'klaim_lokasi' ? 'diterima' : 'terverifikasi';
-          else if (votesDisagree >= it.targetVotes) status = 'ditolak';
-          record = {
-            itemId,
-            projectTitle: it.projectTitle,
-            itemType: it.itemType,
-            authorDisplayName: it.authorDisplayName,
-            choice,
-            votedAt: 'Baru saja',
-          };
-          return { ...it, votesAgree, votesDisagree, status, voters: [...it.voters, user] };
-        });
-        return record ? { ...s, queue, voteHistory: [record, ...s.voteHistory] } : s;
+        const target = s.queue.find(
+          (it) => it.id === itemId && !it.voters.includes(user) && it.status === 'menunggu',
+        );
+        if (!target) return s;
+        const votesAgree = target.votesAgree + (choice === 'setuju' ? 1 : 0);
+        const votesDisagree = target.votesDisagree + (choice === 'tidak_setuju' ? 1 : 0);
+        let status: VerificationItem['status'] = target.status;
+        if (votesAgree >= target.targetVotes) {
+          status = target.itemType === 'klaim_lokasi' ? 'diterima' : 'terverifikasi';
+        } else if (votesDisagree >= target.targetVotes) {
+          status = 'ditolak';
+        }
+        const updatedItem: VerificationItem = {
+          ...target,
+          votesAgree,
+          votesDisagree,
+          status,
+          voters: [...target.voters, user],
+        };
+        const record: VoteRecord = {
+          itemId,
+          projectId: target.projectId,
+          projectTitle: target.projectTitle,
+          itemType: target.itemType,
+          authorDisplayName: target.authorDisplayName,
+          choice,
+          votedAt: 'Baru saja',
+        };
+        return {
+          ...s,
+          queue: s.queue.map((it) => (it.id === itemId ? updatedItem : it)),
+          voteHistory: [record, ...s.voteHistory],
+        };
       });
     },
     [],
