@@ -100,6 +100,7 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		ClaimStore:  claim.NewPGStore(pool),
 		VoteStore:   verification.NewPGVoteStore(pool),
 	})
+	claimHandlers := claim.NewHandler(claim.NewPGStore(pool))
 	projectHandlers := project.NewHandler(project.NewPGStore(pool))
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
@@ -151,6 +152,13 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Get("/projects/:id/reports", projectHandlers.ListProjectReports)
 	v1.Get("/projects/:id/location-claims", projectHandlers.ListProjectClaims)
 	v1.Get("/projects/:id/verification-items", projectHandlers.ListProjectItems)
+
+	// §5.4 / §6.16: location claims endpoints.
+	v1.Post("/projects/:project_id/location-claims", middleware.Bearer(manager, bl), claimHandlers.CreateClaim)
+	v1.Get("/location-claims/:claim_id", claimHandlers.GetClaim)
+	v1.Get("/location-claims/:claim_id/media", claimHandlers.GetClaimMedia)
+	v1.Post("/location-claims/:claim_id/media", middleware.Bearer(manager, bl), claimHandlers.UploadClaimMedia)
+	v1.Delete("/location-claims/:claim_id/media/:media_id", middleware.Bearer(manager, bl), claimHandlers.DeleteClaimMedia)
 
 return api{app: app}
 }

@@ -1,6 +1,4 @@
-// Package claim models the citizens' location claims (§3.9). This milestone
-// exposes only the caller's own listing (GET /users/me/claims); writes arrive
-// with the location-claims milestone (TASK.md §Location Claims).
+// Package claim models the citizens' location claims (§3.9, §3.10).
 package claim
 
 import (
@@ -32,6 +30,47 @@ func ParseStatus(raw string) (ClaimStatus, bool) {
 	}
 }
 
+// Media is a row of claim_media (§3.10).
+type Media struct {
+	ID             string     `json:"id"`
+	ClaimID        string     `json:"claim_id"`
+	FileURL        string     `json:"file_url"`
+	MediaType      string     `json:"media_type"`
+	ExifLatitude   *float64   `json:"exif_latitude"`
+	ExifLongitude  *float64   `json:"exif_longitude"`
+	ExifTakenAt    *time.Time `json:"-"`
+	IsGeotagValid  *bool      `json:"is_geotag_valid"`
+	CreatedAt      time.Time  `json:"-"`
+}
+
+// MediaView is the JSON representation of claim media.
+type MediaView struct {
+	ID            string   `json:"id"`
+	ClaimID       string   `json:"claim_id"`
+	FileURL       string   `json:"file_url"`
+	MediaType     string   `json:"media_type"`
+	ExifLatitude  *float64 `json:"exif_latitude"`
+	ExifLongitude *float64 `json:"exif_longitude"`
+	ExifTakenAt   *string  `json:"exif_taken_at"`
+	IsGeotagValid *bool    `json:"is_geotag_valid"`
+	CreatedAt     string   `json:"created_at"`
+}
+
+// View converts Media to MediaView.
+func (m *Media) View() MediaView {
+	return MediaView{
+		ID:            m.ID,
+		ClaimID:       m.ClaimID,
+		FileURL:       m.FileURL,
+		MediaType:     m.MediaType,
+		ExifLatitude:  m.ExifLatitude,
+		ExifLongitude: m.ExifLongitude,
+		ExifTakenAt:   httpx.ISO8601Ptr(m.ExifTakenAt),
+		IsGeotagValid: m.IsGeotagValid,
+		CreatedAt:     httpx.ISO8601(m.CreatedAt),
+	}
+}
+
 // Claim is a joined row of location_claims + the author's display name.
 type Claim struct {
 	ID                   string      `json:"-"`
@@ -54,6 +93,7 @@ type Claim struct {
 	CreatedAt            time.Time   `json:"-"`
 	UpdatedAt            time.Time   `json:"-"`
 	DecidedAt            *time.Time  `json:"-"`
+	Media                *Media      `json:"-"`
 }
 
 // ClaimView is the JSON shape of the LocationClaim resource (§7.2).
@@ -109,6 +149,18 @@ func (c *Claim) View() ClaimView {
 // ErrNotFound is returned by lookups when no row matches.
 var ErrNotFound = errors.New("claim: not found")
 
+// ErrMediaNotFound is returned when claim media is not found.
+var ErrMediaNotFound = errors.New("claim media: not found")
+
+// ErrProjectHasAcceptedClaim is returned when attempting to create a claim on a project with an accepted claim.
+var ErrProjectHasAcceptedClaim = errors.New("project already has an accepted claim")
+
+// ErrPhotoLimitExceeded is returned when attempting to upload more than 1 photo for a claim.
+var ErrPhotoLimitExceeded = errors.New("claim photo limit exceeded")
+
+// ErrInvalidClaimState is returned when trying to delete photo when claim is not menunggu.
+var ErrInvalidClaimState = errors.New("claim is not in menunggu state")
+
 // ListFilter carries the parsed query parameters of GET /users/me/claims.
 type ListFilter struct {
 	Status *ClaimStatus
@@ -130,9 +182,33 @@ type ListResult struct {
 	Meta Meta     `json:"meta"`
 }
 
-// Store reads location claims for the /users/me family.
+// CreateClaimInput is the payload for creating a new location claim (§6.16).
+type CreateClaimInput struct {
+	ProposedAddress   string   `json:"proposed_address"`
+	AddressLine       *string  `json:"address_line"`
+	Kelurahan         *string  `json:"kelurahan"`
+	Kecamatan         string   `json:"kecamatan"`
+	City              *string  `json:"city"`
+	Landmark          *string  `json:"landmark"`
+	ProposedPrecision string   `json:"proposed_precision"`
+	Latitude          *float64 `json:"latitude"`
+	Longitude         *float64 `json:"longitude"`
+}
+
+// Store defines persistence operations for location claims and claim media.
 type Store interface {
-	// ListByUser lists the caller's claims, newest first, optionally
-	// filtered by status.
+	// ListByUser lists the caller's claims.
 	ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error)
+	// Create creates a claim, creates verification item, and calculates distance to project's primary location.
+	Create(ctx context.Context, projectID, userID string, input CreateClaimInput) (*Claim, error)
+	// GetByID retrieves a claim by ID.
+	GetByID(ctx context.Context, claimID string) (*Claim, error)
+	// GetMedia retrieves the single photo for a claim.
+	GetMedia(ctx context.Context, claimID string) (*Media, error)
+	// AddMedia attaches a photo to a claim (max 1).
+	AddMedia(ctx context.Context, claimID string, media *Media) (*Media, error)
+	// DeleteMedia removes the photo from a claim (only allowed when claim is menunggu).
+	DeleteMedia(ctx context.Context, claimID, mediaID string) error
+	// AcceptClaim marks claim accepted, sets project's primary location, and updates canonical claim flag.
+	AcceptClaim(ctx context.Context, claimID string) error
 }
