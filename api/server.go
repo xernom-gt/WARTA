@@ -36,6 +36,7 @@ import (
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
+	"warta.com/api/internal/project"
 	"warta.com/api/internal/report"
 	"warta.com/api/internal/token"
 	"warta.com/api/internal/user"
@@ -99,6 +100,7 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		ClaimStore:  claim.NewPGStore(pool),
 		VoteStore:   verification.NewPGVoteStore(pool),
 	})
+	projectHandlers := project.NewHandler(project.NewPGStore(pool))
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
 
@@ -138,6 +140,17 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	// §6.4: public, no bearer. Deactivated profiles still return 200 with
 	// is_active=false (§7.4 keeps is_active in the public shape).
 	v1.Get("/users/:user_id", userHandlers.GetPublicUser)
+
+	// §6.6-§6.12: public project catalog endpoints.
+	v1.Get("/projects", projectHandlers.ListProjects)
+	v1.Get("/projects/map", projectHandlers.ListProjectMapPins)
+	v1.Get("/projects/:id", projectHandlers.GetProject)
+	v1.Get("/projects/:id/tenders", projectHandlers.ListProjectTenders)
+	v1.Get("/projects/:id/locations", projectHandlers.ListProjectLocations)
+	v1.Get("/projects/:id/risk-flags", projectHandlers.ListProjectRiskFlags)
+	v1.Get("/projects/:id/reports", projectHandlers.ListProjectReports)
+	v1.Get("/projects/:id/location-claims", projectHandlers.ListProjectClaims)
+	v1.Get("/projects/:id/verification-items", projectHandlers.ListProjectItems)
 
 return api{app: app}
 }
