@@ -32,6 +32,7 @@ import (
 	"warta.com/api/internal/claim"
 	"warta.com/api/internal/config"
 	"warta.com/api/internal/db"
+	"warta.com/api/internal/evidence"
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
@@ -118,6 +119,35 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 			}, nil
 		},
 	})
+	evidenceStore := evidence.NewPGStore(pool)
+	evidenceHandlers := evidence.NewHandler(evidence.Deps{
+		Store: evidenceStore,
+		CallerLookup: func(ctx context.Context, userID string) (*evidence.Caller, error) {
+			u, err := store.FindByID(ctx, userID)
+			if errors.Is(err, user.ErrNotFound) {
+				return nil, evidence.ErrCallerNotFound
+			}
+			if err != nil {
+				return nil, err
+			}
+			return &evidence.Caller{
+				ID:            u.ID,
+				DisplayName:   u.DisplayName,
+				IsActive:      u.IsActive,
+				EmailVerified: u.EmailVerifiedAt != nil,
+			}, nil
+		},
+		ReportLookup: func(ctx context.Context, reportID string, callerID string) (bool, error) {
+			r, err := reportStore.FindByID(ctx, reportID)
+			if err != nil {
+				return false, err
+			}
+			if r.Status == report.StatusDraft {
+				return callerID != "" && callerID == r.UserID, nil
+			}
+			return true, nil
+		},
+	})
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
 
@@ -166,6 +196,12 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Get("/reports/:report_id/media", middleware.OptionalBearer(manager, bl), reportHandlers.ListMedia)
 	v1.Post("/reports/:report_id/media", middleware.Bearer(manager, bl), reportHandlers.UploadMedia)
 	v1.Delete("/reports/:report_id/media/:media_id", middleware.Bearer(manager, bl), reportHandlers.DeleteMedia)
+	v1.Get("/reports/:report_id/evidences", middleware.OptionalBearer(manager, bl), evidenceHandlers.ListByReport)
+	v1.Post("/reports/:report_id/evidences", middleware.Bearer(manager, bl), evidenceHandlers.Create)
+	v1.Get("/evidences/:evidence_id", middleware.OptionalBearer(manager, bl), evidenceHandlers.Get)
+	v1.Get("/evidences/:evidence_id/media", middleware.OptionalBearer(manager, bl), evidenceHandlers.ListMedia)
+	v1.Post("/evidences/:evidence_id/media", middleware.Bearer(manager, bl), evidenceHandlers.UploadMedia)
+	v1.Delete("/evidences/:evidence_id/media/:media_id", middleware.Bearer(manager, bl), evidenceHandlers.DeleteMedia)
 
 	return api{app: app}
 }

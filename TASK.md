@@ -77,12 +77,12 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [x] `DELETE /reports/{report_id}/media/{media_id}` — Author-only, draft-only; remove from object storage
 
 ### Evidence
-- [ ] `GET /reports/{report_id}/evidences` — List additional evidence
-- [ ] `POST /reports/{report_id}/evidences` — Any authenticated citizen; `description` required; no verification item created
-- [ ] `GET /evidences/{evidence_id}` — Single evidence entry
-- [ ] `GET /evidences/{evidence_id}/media` — List evidence photos
-- [ ] `POST /evidences/{evidence_id}/media` — Author upload evidence photo
-- [ ] `DELETE /evidences/{evidence_id}/media/{media_id}` — Author delete (while evidence not "reviewed" — clarify rule)
+- [x] `GET /reports/{report_id}/evidences` — List additional evidence
+- [x] `POST /reports/{report_id}/evidences` — Any authenticated citizen; `description` required; no verification item created
+- [x] `GET /evidences/{evidence_id}` — Single evidence entry
+- [x] `GET /evidences/{evidence_id}/media` — List evidence photos
+- [x] `POST /evidences/{evidence_id}/media` — Author upload evidence photo
+- [x] `DELETE /evidences/{evidence_id}/media/{media_id}` — Author delete (while evidence not "reviewed" — clarify rule)
 
 ---
 
