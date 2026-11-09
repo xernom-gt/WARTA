@@ -116,9 +116,9 @@ export interface VerificationItem {
   categoryLabel: string;
   authorDisplayName: string;
   createdAt: string;
-  distanceFromProject: string;
-  exifValid: boolean;
-  exifNotice: string;
+  distanceFromProject?: string;
+  exifValid?: boolean;
+  exifNotice?: string;
   narrative: string;
   proposedAddress: string;
   proposedPrecision?: PrecisionLevel;
@@ -130,8 +130,6 @@ export interface VerificationItem {
   voters: string[];
   status: ReportStatus | ClaimStatus;
 }
-
-/* ---- Tipe tambahan untuk state aplikasi (bukan dari spesifikasi inti) ---- */
 
 export interface CitizenReport {
   id: string;
@@ -159,6 +157,7 @@ export type VoteChoice = 'setuju' | 'tidak_setuju';
 
 export interface VoteRecord {
   itemId: string;
+  projectId?: string;
   projectTitle: string;
   itemType: VerificationItem['itemType'];
   authorDisplayName: string;

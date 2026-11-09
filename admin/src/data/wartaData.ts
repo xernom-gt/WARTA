@@ -7,6 +7,10 @@ import type {
   VoteRecord,
 } from '../types/warta';
 
+export const SAMPLE_DATA =
+  import.meta.env.VITE_SAMPLE_DATA === '1' ||
+  (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('sample') === '1');
+
 export const DATASET_SUMMARY = {
   totalRawPackages: 122,
   uniqueProjects: 118,
@@ -409,10 +413,6 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
   },
 ];
 
-/* ------------------------------------------------------------------ */
-/* Data turunan — selalu diambil dari WARTA_PROJECTS (Single Source)   */
-/* ------------------------------------------------------------------ */
-
 export const CURRENT_USER = 'Warga_KebonJeruk';
 export const OTHER_USER = 'Warga_Cilincing';
 
@@ -520,8 +520,8 @@ export const INITIAL_MY_CLAIMS: CitizenClaim[] = [
 ];
 
 export const INITIAL_VOTE_HISTORY: VoteRecord[] = [
-  { itemId: 'old-1', projectTitle: getProject('proj-7').title, itemType: 'laporan_kondisi', authorDisplayName: 'Warga_Menteng', choice: 'setuju', votedAt: '8 Maret 2025' },
-  { itemId: 'old-2', projectTitle: getProject('proj-1').title, itemType: 'klaim_lokasi', authorDisplayName: 'Warga_Rorotan', choice: 'tidak_setuju', votedAt: '4 Maret 2025' },
+  { itemId: 'old-1', projectId: 'proj-7', projectTitle: getProject('proj-7').title, itemType: 'laporan_kondisi', authorDisplayName: 'Warga_Menteng', choice: 'setuju', votedAt: '8 Maret 2025' },
+  { itemId: 'old-2', projectId: 'proj-1', projectTitle: getProject('proj-1').title, itemType: 'klaim_lokasi', authorDisplayName: 'Warga_Rorotan', choice: 'tidak_setuju', votedAt: '4 Maret 2025' },
 ];
 
 function pick(projectId: string) {

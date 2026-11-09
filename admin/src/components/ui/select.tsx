@@ -19,10 +19,10 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        'group flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800',
+        'group flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-800',
         'transition-colors outline-none hover:border-slate-400',
         'focus-visible:border-action-border focus-visible:ring-2 focus-visible:ring-action-border/40',
-        'data-[placeholder]:text-slate-500',
+        'data-[placeholder]:text-slate-600',
         'disabled:cursor-not-allowed disabled:opacity-50',
         '[&>span]:truncate',
         className,
@@ -31,7 +31,7 @@ export function SelectTrigger({
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="size-4 shrink-0 text-slate-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+        <ChevronDown className="size-4 shrink-0 text-slate-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -64,7 +64,7 @@ export function SelectContent({
 export function SelectLabel({ className, ...props }: ComponentProps<typeof SelectPrimitive.Label>) {
   return (
     <SelectPrimitive.Label
-      className={cn('px-2 py-1.5 text-[11px] font-bold tracking-wide text-slate-500 uppercase', className)}
+      className={cn('px-2 py-1.5 text-xs font-bold tracking-wide text-slate-600 uppercase', className)}
       {...props}
     />
   );

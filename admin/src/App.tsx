@@ -1,4 +1,5 @@
 import { WartaProvider, useWarta } from './context/WartaContext';
+import { SAMPLE_DATA } from './data/wartaData';
 import CitizenLoginModal from './components/common/CitizenLoginModal';
 import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
 import DevSimulatorBar from './components/layout/DevSimulatorBar';
@@ -18,12 +19,13 @@ function Screen() {
       return <ReportFormView />;
     case 'klaim':
       return <ClaimLocationView />;
-    case 'verifikasi':
-      return <VerificationQueueView />;
+    case 'peta':
+    case 'detail':
+      return <MapExplorerView />;
     case 'profil':
       return <CitizenProfileView />;
     default:
-      return <MapExplorerView />; // 'peta' & 'detail' (modal di atas peta)
+      return <VerificationQueueView />;
   }
 }
 
@@ -32,7 +34,7 @@ export default function App() {
     <WartaProvider>
       <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
         <Header />
-        <DevSimulatorBar />
+        {SAMPLE_DATA && <DevSimulatorBar />}
         <main className="flex flex-1 flex-col">
           <Screen />
         </main>
