@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PGStore reads and writes reports in PostgreSQL (migrations M3, M5).
+// PGStore reads and writes reports in PostgreSQL (migrations M3, M5, M9).
 type PGStore struct {
 	pool *pgxpool.Pool
 }
@@ -79,8 +79,9 @@ func (s *PGStore) Create(ctx context.Context, r *Report, enqueue bool) (*Report,
 
 	if enqueue {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO verification_items (item_type, report_id, status, target_votes)
-			VALUES ('laporan_kondisi', $1, 'menunggu', 3)`, created.ID); err != nil {
+			INSERT INTO verification_items (project_id, item_type, report_id, author_user_id, status, target_votes)
+			VALUES ($1, 'laporan_kondisi', $2, $3, 'menunggu', 3)`,
+			created.ProjectID, created.ID, created.UserID); err != nil {
 			return nil, err
 		}
 	}
@@ -102,14 +103,14 @@ func (s *PGStore) Create(ctx context.Context, r *Report, enqueue bool) (*Report,
 	return &created, nil
 }
 
-// FindByID loads one report with its author display name, media rows, and
-// evidence count.
+// FindByID loads one active (non-soft-deleted) report with its author display
+// name, media rows, and evidence count.
 func (s *PGStore) FindByID(ctx context.Context, reportID string) (*Report, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+reportColumns+`
 		FROM reports r
 		JOIN users u ON u.id = r.user_id
-		WHERE r.id = $1`, reportID)
+		WHERE r.id = $1 AND r.deleted_at IS NULL`, reportID)
 	r, err := scanReport(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -136,14 +137,15 @@ func (s *PGStore) Submit(ctx context.Context, reportID string, submittedAt time.
 	var (
 		curStatus string
 		projectID string
+		userID    string
 		lat, lng  *float64
 		dist      *float64
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT status, project_id, latitude, longitude, distance_from_project
+		SELECT status, project_id, user_id, latitude, longitude, distance_from_project
 		FROM reports
-		WHERE id = $1
-		FOR UPDATE`, reportID).Scan(&curStatus, &projectID, &lat, &lng, &dist)
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`, reportID).Scan(&curStatus, &projectID, &userID, &lat, &lng, &dist)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -155,21 +157,13 @@ func (s *PGStore) Submit(ctx context.Context, reportID string, submittedAt time.
 	}
 
 	if dist == nil && lat != nil && lng != nil {
-		var projLat, projLng *float64
-		err := tx.QueryRow(ctx, `
-			SELECT latitude, longitude
-			FROM project_locations
-			WHERE project_id = $1 AND is_primary = TRUE
-			LIMIT 1`, projectID).Scan(&projLat, &projLng)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		dist, err = lookupDistanceTx(ctx, tx, projectID, lat, lng)
+		if err != nil {
 			return nil, err
-		}
-		if projLat != nil && projLng != nil {
-			d := HaversineMeters(*lat, *lng, *projLat, *projLng)
-			dist = &d
 		}
 	}
 
+	ts := submittedAt.UTC()
 	if _, err := tx.Exec(ctx, `
 		UPDATE reports
 		SET status = $2,
@@ -177,13 +171,14 @@ func (s *PGStore) Submit(ctx context.Context, reportID string, submittedAt time.
 			updated_at = $3,
 			distance_from_project = $4
 		WHERE id = $1`,
-		reportID, string(StatusMenunggu), submittedAt.UTC(), dist); err != nil {
+		reportID, string(StatusMenunggu), ts, dist); err != nil {
 		return nil, err
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO verification_items (item_type, report_id, status, target_votes)
-		VALUES ('laporan_kondisi', $1, 'menunggu', 3)`, reportID); err != nil {
+		INSERT INTO verification_items (project_id, item_type, report_id, author_user_id, status, target_votes)
+		VALUES ($1, 'laporan_kondisi', $2, $3, 'menunggu', 3)`,
+		projectID, reportID, userID); err != nil {
 		return nil, err
 	}
 
@@ -193,14 +188,301 @@ func (s *PGStore) Submit(ctx context.Context, reportID string, submittedAt time.
 	return s.FindByID(ctx, reportID)
 }
 
-// ListByUser lists the caller's reports, newest first, optionally filtered
-// by status, then joins each page's media rows (§7.1 media is required).
-// Pagination follows §10.4: default limit 20, clamped at 100.
+// UpdateDraft applies partial edits to a draft report and recomputes
+// distance_from_project when coordinates change (§6.13).
+func (s *PGStore) UpdateDraft(ctx context.Context, reportID string, patch DraftPatch) (*Report, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		curStatus    string
+		projectID    string
+		category     *string
+		narrative    string
+		proposedAddr *string
+		lat, lng     *float64
+		dist         *float64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT status, project_id, category, narrative, proposed_address,
+			latitude, longitude, distance_from_project
+		FROM reports
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`, reportID).Scan(
+		&curStatus, &projectID, &category, &narrative, &proposedAddr,
+		&lat, &lng, &dist,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if ReportStatus(curStatus) != StatusDraft {
+		return nil, ErrNotDraft
+	}
+
+	if patch.SetCategory {
+		category = patch.Category
+	}
+	if patch.SetNarrative {
+		narrative = patch.Narrative
+	}
+	if patch.SetProposedAddress {
+		proposedAddr = patch.ProposedAddress
+	}
+	if patch.SetCoordinates {
+		lat = patch.Latitude
+		lng = patch.Longitude
+		if lat == nil || lng == nil {
+			dist = nil
+		} else {
+			dist, err = lookupDistanceTx(ctx, tx, projectID, lat, lng)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	ts := patch.UpdatedAt.UTC()
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE reports
+		SET category = $2,
+			narrative = $3,
+			proposed_address = $4,
+			latitude = $5,
+			longitude = $6,
+			distance_from_project = $7,
+			updated_at = $8
+		WHERE id = $1`,
+		reportID, category, narrative, proposedAddr, lat, lng, dist, ts); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return s.FindByID(ctx, reportID)
+}
+
+// Delete hard-deletes a draft report (cascading to report_media) or
+// soft-deletes a menunggu report and closes its verification item by setting
+// resolved_at (§6.14).
+func (s *PGStore) Delete(ctx context.Context, reportID string, deletedAt time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var curStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT status
+		FROM reports
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`, reportID).Scan(&curStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	ts := deletedAt.UTC()
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+
+	switch ReportStatus(curStatus) {
+	case StatusDraft:
+		if _, err := tx.Exec(ctx, `DELETE FROM reports WHERE id = $1`, reportID); err != nil {
+			return err
+		}
+	case StatusMenunggu:
+		if _, err := tx.Exec(ctx, `
+			UPDATE reports
+			SET deleted_at = $2, updated_at = $2
+			WHERE id = $1`, reportID, ts); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE verification_items
+			SET resolved_at = $2
+			WHERE report_id = $1 AND resolved_at IS NULL`, reportID, ts); err != nil {
+			return err
+		}
+	default:
+		return ErrDeleteLocked
+	}
+
+	return tx.Commit(ctx)
+}
+
+// CreateMedia inserts a report_media row at requestedSlot (or the lowest free
+// slot 0..3 when requestedSlot is nil) inside a transaction (§6.15).
+func (s *PGStore) CreateMedia(ctx context.Context, reportID string, m *Media, requestedSlot *int) (*Media, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var curStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT status
+		FROM reports
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`, reportID).Scan(&curStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT sort_order
+		FROM report_media
+		WHERE report_id = $1
+		ORDER BY sort_order ASC`, reportID)
+	if err != nil {
+		return nil, err
+	}
+	used := map[int]bool{}
+	for rows.Next() {
+		var slot int
+		if err := rows.Scan(&slot); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		used[slot] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	slot, err := chooseMediaSlot(used, requestedSlot)
+	if err != nil {
+		return nil, err
+	}
+
+	created := *m
+	created.ReportID = reportID
+	created.SortOrder = slot
+	err = tx.QueryRow(ctx, `
+		INSERT INTO report_media (
+			report_id, file_url, media_type,
+			exif_latitude, exif_longitude, exif_taken_at, is_geotag_valid,
+			sort_order
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, created_at`,
+		reportID, created.FileURL, created.MediaType,
+		created.ExifLatitude, created.ExifLongitude, created.ExifTakenAt,
+		created.IsGeotagValid, created.SortOrder,
+	).Scan(&created.ID, &created.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// DeleteMedia removes a report_media row while the parent report is still a
+// draft and returns its file_url for storage cleanup (§6.19).
+func (s *PGStore) DeleteMedia(ctx context.Context, reportID, mediaID string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var curStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT status
+		FROM reports
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`, reportID).Scan(&curStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	if ReportStatus(curStatus) != StatusDraft {
+		return "", ErrNotDraft
+	}
+
+	var fileURL string
+	err = tx.QueryRow(ctx, `
+		DELETE FROM report_media
+		WHERE id = $1 AND report_id = $2
+		RETURNING file_url`, mediaID, reportID).Scan(&fileURL)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrMediaNotFound
+		}
+		return "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return fileURL, nil
+}
+
+func chooseMediaSlot(used map[int]bool, requested *int) (int, error) {
+	if len(used) >= MaxReportPhotos {
+		return 0, ErrPhotoLimitReached
+	}
+	if requested != nil {
+		if used[*requested] {
+			return 0, ErrSortOrderTaken
+		}
+		return *requested, nil
+	}
+	for slot := 0; slot < MaxReportPhotos; slot++ {
+		if !used[slot] {
+			return slot, nil
+		}
+	}
+	return 0, ErrPhotoLimitReached
+}
+
+func lookupDistanceTx(ctx context.Context, tx pgx.Tx, projectID string, lat, lng *float64) (*float64, error) {
+	var projLat, projLng *float64
+	err := tx.QueryRow(ctx, `
+		SELECT latitude, longitude
+		FROM project_locations
+		WHERE project_id = $1 AND is_primary = TRUE
+		LIMIT 1`, projectID).Scan(&projLat, &projLng)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if projLat != nil && projLng != nil {
+		d := HaversineMeters(*lat, *lng, *projLat, *projLng)
+		return &d, nil
+	}
+	return nil, nil
+}
+
+// ListByUser lists the caller's active reports, newest first, optionally
+// filtered by status, then joins each page's media rows (§7.1).
 func (s *PGStore) ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error) {
 	page, limit := clampPage(filter.Page, filter.Limit)
 	offset := (page - 1) * limit
 
-	where := ` WHERE r.user_id = $1`
+	where := ` WHERE r.user_id = $1 AND r.deleted_at IS NULL`
 	args := []any{userID}
 	if filter.Status != nil {
 		where += ` AND r.status = $2`

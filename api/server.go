@@ -123,6 +123,7 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 
 	app := fiber.New(fiber.Config{
 		AppName:      "warta-api " + cfg.Version,
+		BodyLimit:    10 * 1024 * 1024,
 		ErrorHandler: renderError,
 	})
 	app.Use(recover.New()) // panics never leak stack traces (EnableStackTrace is false by default)
@@ -158,7 +159,13 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	// is_active=false (§7.4 keeps is_active in the public shape).
 	v1.Get("/users/:user_id", userHandlers.GetPublicUser)
 	v1.Post("/projects/:project_id/reports", middleware.Bearer(manager, bl), reportHandlers.Create)
+	v1.Get("/reports/:report_id", middleware.OptionalBearer(manager, bl), reportHandlers.Get)
+	v1.Patch("/reports/:report_id", middleware.Bearer(manager, bl), reportHandlers.Update)
+	v1.Delete("/reports/:report_id", middleware.Bearer(manager, bl), reportHandlers.Delete)
 	v1.Post("/reports/:report_id/submit", middleware.Bearer(manager, bl), reportHandlers.Submit)
+	v1.Get("/reports/:report_id/media", middleware.OptionalBearer(manager, bl), reportHandlers.ListMedia)
+	v1.Post("/reports/:report_id/media", middleware.Bearer(manager, bl), reportHandlers.UploadMedia)
+	v1.Delete("/reports/:report_id/media/:media_id", middleware.Bearer(manager, bl), reportHandlers.DeleteMedia)
 
 	return api{app: app}
 }

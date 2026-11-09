@@ -55,6 +55,30 @@ func Bearer(tm *token.Manager, bl blocklist.Store) fiber.Handler {
 	}
 }
 
+// OptionalBearer populates LocalUserID when a valid, unrevoked Bearer token is
+// present and otherwise continues as an unauthenticated guest.
+func OptionalBearer(tm *token.Manager, bl blocklist.Store) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		raw, ok := bearerTokenOf(c)
+		if !ok {
+			return c.Next()
+		}
+		userID, err := tm.Verify(raw)
+		if err != nil {
+			return c.Next()
+		}
+		if bl != nil {
+			if jti, je := tm.ExtractJTI(raw); je == nil {
+				if revoked, re := bl.Contains(c.Context(), jti); re == nil && revoked {
+					return c.Next()
+				}
+			}
+		}
+		c.Locals(LocalUserID, userID)
+		return c.Next()
+	}
+}
+
 // BearerTokenOf extracts the token after a case-insensitive Bearer scheme
 // token per RFC 7235 (auth-scheme tokens are case-insensitive).
 // Exported for use by handlers that need raw token access (e.g., logout).

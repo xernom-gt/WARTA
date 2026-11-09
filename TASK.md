@@ -66,15 +66,15 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 
 ### Report CRUD
 - [x] `POST /projects/{project_id}/reports` — Create draft (`submit: false`) or submit (`submit: true`); validate submit requirements; set `user_id` from auth; compute `distance_from_project`
-- [ ] `GET /reports/{report_id}` — Full detail with `media`, `evidences_count`, `distance_from_project_m`, `exif_status`, `exif_notice`
-- [ ] `PATCH /reports/{report_id}` — Author-only, draft-only; mutable: `category`, `narrative`, `proposed_address`, `latitude`, `longitude`
-- [ ] `DELETE /reports/{report_id}` — Author-only; draft = hard delete; `menunggu` = soft delete (`deleted_at`), close verification item, retain media/votes
+- [x] `GET /reports/{report_id}` — Full detail with `media`, `evidences_count`, `distance_from_project_m`, `exif_status`, `exif_notice`
+- [x] `PATCH /reports/{report_id}` — Author-only, draft-only; mutable: `category`, `narrative`, `proposed_address`, `latitude`, `longitude`
+- [x] `DELETE /reports/{report_id}` — Author-only; draft = hard delete; `menunggu` = soft delete (`deleted_at`), close verification item, retain media/votes
 - [x] `POST /reports/{report_id}/submit` — Author-only; draft→`menunggu`; set `submitted_at`; create `verification_items` row (`laporan_kondisi`); validate: category, address, narrative 20-500, ≥1 photo
 
 ### Report Media
-- [ ] `GET /reports/{report_id}/media` — List photos ordered by `sort_order`
-- [ ] `POST /reports/{report_id}/media` — `multipart/form-data` (`file`, `sort_order` 0-3); max 4 photos, 5MB each, JPEG/PNG/WebP; server extracts EXIF, stores to object storage, returns media row
-- [ ] `DELETE /reports/{report_id}/media/{media_id}` — Author-only, draft-only; remove from object storage
+- [x] `GET /reports/{report_id}/media` — List photos ordered by `sort_order`
+- [x] `POST /reports/{report_id}/media` — `multipart/form-data` (`file`, `sort_order` 0-3); max 4 photos, 5MB each, JPEG/PNG/WebP; server extracts EXIF, stores to object storage, returns media row
+- [x] `DELETE /reports/{report_id}/media/{media_id}` — Author-only, draft-only; remove from object storage
 
 ### Evidence
 - [ ] `GET /reports/{report_id}/evidences` — List additional evidence

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -30,23 +32,30 @@ type Caller struct {
 // ErrCallerNotFound when the account row is absent.
 type CallerLookup func(ctx context.Context, userID string) (*Caller, error)
 
-// Handler serves the report creation and submission endpoints (§6.11, §6.12).
+// Handler serves the report CRUD, submission, and media endpoints (§6.11-6.15).
 type Handler struct {
-	store  Store
-	caller CallerLookup
+	store   Store
+	caller  CallerLookup
+	storage MediaStorage
 }
 
 // Deps bundles the collaborators for NewHandler.
 type Deps struct {
 	Store        Store
 	CallerLookup CallerLookup
+	Storage      MediaStorage
 }
 
 // NewHandler wires a report Handler.
 func NewHandler(d Deps) *Handler {
+	st := d.Storage
+	if st == nil {
+		st = NewMemoryMediaStorage("https://storage.warta.id")
+	}
 	return &Handler{
-		store:  d.Store,
-		caller: d.CallerLookup,
+		store:   d.Store,
+		caller:  d.CallerLookup,
+		storage: st,
 	}
 }
 
@@ -59,6 +68,14 @@ type createReportRequest struct {
 	ExifStatus      *string  `json:"exif_status"`
 	ExifNotice      *string  `json:"exif_notice"`
 	Submit          bool     `json:"submit"`
+}
+
+type updateReportRequest struct {
+	Category        *string  `json:"category"`
+	Narrative       *string  `json:"narrative"`
+	ProposedAddress *string  `json:"proposed_address"`
+	Latitude        *float64 `json:"latitude"`
+	Longitude       *float64 `json:"longitude"`
 }
 
 // Create implements POST /projects/{project_id}/reports (§6.11).
@@ -128,6 +145,345 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	}
 }
 
+// Get implements GET /reports/{report_id} (§5.3, §7.1).
+// Submitted reports are public; drafts are visible only to their active author
+// and return 404 to everyone else (§9.3).
+func (h *Handler) Get(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if !h.canReadReport(c, r) {
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"data": r.View()})
+}
+
+// ListMedia implements GET /reports/{report_id}/media (§5.3, §7.1).
+func (h *Handler) ListMedia(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if !h.canReadReport(c, r) {
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"data": r.View().Media})
+}
+
+// UploadMedia implements POST /reports/{report_id}/media (§6.15, §11.1-11.4).
+func (h *Handler) UploadMedia(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+
+	caller, err := h.authorizeWriter(c)
+	if err != nil || caller == nil {
+		return err
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if r.UserID != caller.ID {
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden",
+			"Only the report author can upload photos to this report.")
+	}
+	if r.Status != StatusDraft && r.Status != StatusMenunggu {
+		return httpx.Error(c, fiber.StatusConflict, "conflict",
+			"Cannot upload photos to a resolved report.")
+	}
+	if len(r.Media) >= MaxReportPhotos {
+		return httpx.Error(c, fiber.StatusConflict, "photo_limit_reached",
+			"Maximum of 4 photos per report reached.")
+	}
+
+	var requestedSlot *int
+	if rawSort := strings.TrimSpace(c.FormValue("sort_order")); rawSort != "" {
+		slot, convErr := strconv.Atoi(rawSort)
+		if convErr != nil || slot < 0 || slot >= MaxReportPhotos {
+			return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
+				"Validation failed.", httpx.FieldError{
+					Field:   "sort_order",
+					Message: "sort_order must be an integer between 0 and 3.",
+				})
+		}
+		requestedSlot = &slot
+	}
+
+	fh, err := c.FormFile("file")
+	if err != nil || fh == nil {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
+			"Validation failed.", httpx.FieldError{
+				Field:   "file",
+				Message: "file is required.",
+			})
+	}
+	if fh.Size > MaxPhotoBytes {
+		return httpx.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large",
+			"Files must be 5 MB or smaller.")
+	}
+
+	f, err := fh.Open()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, MaxPhotoBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > MaxPhotoBytes {
+		return httpx.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large",
+			"Files must be 5 MB or smaller.")
+	}
+
+	mimeType, ext, ok := DetectImageMIME(data)
+	if !ok {
+		return httpx.Error(c, fiber.StatusUnsupportedMediaType, "unsupported_media_type",
+			"Only image/jpeg, image/png, and image/webp are accepted.")
+	}
+
+	exifMeta := ExtractEXIF(data)
+	isGeotagValid := EvaluateGeotag(exifMeta, r.Latitude, r.Longitude)
+
+	mediaID := uuid.NewString()
+	key := "reports/" + r.ID + "/" + mediaID + ext
+	fileURL, err := h.storage.Put(c.Context(), key, mimeType, data)
+	if err != nil {
+		return err
+	}
+
+	created, err := h.store.CreateMedia(c.Context(), r.ID, &Media{
+		ID:            mediaID,
+		ReportID:      r.ID,
+		FileURL:       fileURL,
+		MediaType:     mimeType,
+		ExifLatitude:  exifMeta.Latitude,
+		ExifLongitude: exifMeta.Longitude,
+		ExifTakenAt:   exifMeta.TakenAt,
+		IsGeotagValid: isGeotagValid,
+		CreatedAt:     time.Now().UTC(),
+	}, requestedSlot)
+	if err != nil {
+		_ = h.storage.Delete(c.Context(), fileURL)
+		switch {
+		case errors.Is(err, ErrPhotoLimitReached):
+			return httpx.Error(c, fiber.StatusConflict, "photo_limit_reached",
+				"Maximum of 4 photos per report reached.")
+		case errors.Is(err, ErrSortOrderTaken):
+			return httpx.Error(c, fiber.StatusConflict, "conflict",
+				"The requested sort_order is already in use.")
+		case errors.Is(err, ErrNotFound):
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+		default:
+			return err
+		}
+	}
+
+	c.Set("Location", "/api/v1/reports/"+r.ID+"/media/"+created.ID)
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": created.View()})
+}
+
+// DeleteMedia implements DELETE /reports/{report_id}/media/{media_id} (§6.19).
+func (h *Handler) DeleteMedia(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+	mediaID := c.Params("media_id")
+	if _, err := uuid.Parse(mediaID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"media_id must be a valid UUID.")
+	}
+
+	caller, err := h.authorizeWriter(c)
+	if err != nil || caller == nil {
+		return err
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if r.UserID != caller.ID {
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden",
+			"Only the report author can delete photos from this report.")
+	}
+
+	fileURL, err := h.store.DeleteMedia(c.Context(), r.ID, mediaID)
+	switch {
+	case err == nil:
+		_ = h.storage.Delete(c.Context(), fileURL)
+		return c.SendStatus(fiber.StatusNoContent)
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrMediaNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report photo not found.")
+	case errors.Is(err, ErrNotDraft):
+		return httpx.Error(c, fiber.StatusConflict, "conflict",
+			"Report photos can only be deleted while the report is a draft.")
+	default:
+		return err
+	}
+}
+
+func (h *Handler) canReadReport(c fiber.Ctx, r *Report) bool {
+	if r.Status != StatusDraft {
+		return true
+	}
+	callerID, _ := c.Locals(middleware.LocalUserID).(string)
+	if callerID == "" || callerID != r.UserID {
+		return false
+	}
+	if h.caller != nil {
+		caller, err := h.caller(c.Context(), callerID)
+		if err != nil || caller == nil || !caller.IsActive {
+			return false
+		}
+	}
+	return true
+}
+
+// Update implements PATCH /reports/{report_id} (§6.13).
+func (h *Handler) Update(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+
+	caller, err := h.authorizeWriter(c)
+	if err != nil || caller == nil {
+		return err
+	}
+
+	raw := c.Body()
+	if len(raw) == 0 {
+		return httpx.Error(c, fiber.StatusBadRequest, "bad_request",
+			"The request body is not valid JSON.")
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawFields); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "bad_request",
+			"The request body is not valid JSON.")
+	}
+	var req updateReportRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "bad_request",
+			"The request body is not valid JSON.")
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if r.UserID != caller.ID {
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden",
+			"Only the report author can update this report.")
+	}
+	if r.Status != StatusDraft {
+		return httpx.Error(c, fiber.StatusConflict, "conflict",
+			"Only draft reports can be updated.")
+	}
+
+	patch, details := buildDraftPatch(r, rawFields, req)
+	if len(details) > 0 {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
+			"Validation failed.", details...)
+	}
+
+	updated, err := h.store.UpdateDraft(c.Context(), r.ID, patch)
+	switch {
+	case err == nil:
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{"data": updated.View()})
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case errors.Is(err, ErrNotDraft):
+		return httpx.Error(c, fiber.StatusConflict, "conflict",
+			"Only draft reports can be updated.")
+	default:
+		return err
+	}
+}
+
+// Delete implements DELETE /reports/{report_id} (§6.14).
+func (h *Handler) Delete(c fiber.Ctx) error {
+	reportID := c.Params("report_id")
+	if _, err := uuid.Parse(reportID); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed",
+			"report_id must be a valid UUID.")
+	}
+
+	caller, err := h.authorizeWriter(c)
+	if err != nil || caller == nil {
+		return err
+	}
+
+	r, err := h.store.FindByID(c.Context(), reportID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case err != nil:
+		return err
+	}
+
+	if r.UserID != caller.ID {
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden",
+			"Only the report author can delete this report.")
+	}
+
+	err = h.store.Delete(c.Context(), r.ID, time.Now().UTC())
+	switch {
+	case err == nil:
+		return c.SendStatus(fiber.StatusNoContent)
+	case errors.Is(err, ErrNotFound):
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Report not found.")
+	case errors.Is(err, ErrDeleteLocked):
+		return httpx.Error(c, fiber.StatusConflict, "conflict",
+			"Reports with a consensus verdict cannot be deleted.")
+	default:
+		return err
+	}
+}
+
 // Submit implements POST /reports/{report_id}/submit (§6.12).
 func (h *Handler) Submit(c fiber.Ctx) error {
 	reportID := c.Params("report_id")
@@ -178,7 +534,7 @@ func (h *Handler) Submit(c fiber.Ctx) error {
 }
 
 // authorizeWriter verifies that the authenticated user exists, is active, and
-// has verified their email address before creating or submitting content (§3.4, §3.5).
+// has verified their email address before creating or modifying content (§3.4, §3.5).
 func (h *Handler) authorizeWriter(c fiber.Ctx) (*Caller, error) {
 	userID, _ := c.Locals(middleware.LocalUserID).(string)
 	if userID == "" || h.caller == nil {
@@ -207,6 +563,84 @@ func (h *Handler) authorizeWriter(c fiber.Ctx) (*Caller, error) {
 		return nil, nil
 	}
 	return caller, nil
+}
+
+func buildDraftPatch(existing *Report, rawFields map[string]json.RawMessage, req updateReportRequest) (DraftPatch, []httpx.FieldError) {
+	var details []httpx.FieldError
+	patch := DraftPatch{UpdatedAt: time.Now().UTC()}
+
+	if _, hasCategory := rawFields["category"]; hasCategory {
+		patch.SetCategory = true
+		if req.Category != nil && strings.TrimSpace(*req.Category) != "" {
+			parsed, ok := ParseCategory(*req.Category)
+			if !ok {
+				details = append(details, httpx.FieldError{
+					Field:   "category",
+					Message: "Category must be one of: belum_mulai, lambat_mangkrak, fisik_rusak, papan_tidak_ada, selesai.",
+				})
+			} else {
+				patch.Category = &parsed
+			}
+		}
+	}
+
+	if _, hasNarrative := rawFields["narrative"]; hasNarrative {
+		patch.SetNarrative = true
+		if req.Narrative == nil {
+			details = append(details, httpx.FieldError{
+				Field:   "narrative",
+				Message: "Narrative is required and must be at most 500 characters.",
+			})
+		} else {
+			nLen := utf8.RuneCountInString(strings.TrimSpace(*req.Narrative))
+			if nLen < 1 || nLen > 500 {
+				details = append(details, httpx.FieldError{
+					Field:   "narrative",
+					Message: "Narrative is required and must be at most 500 characters.",
+				})
+			} else {
+				patch.Narrative = *req.Narrative
+			}
+		}
+	}
+
+	if _, hasAddr := rawFields["proposed_address"]; hasAddr {
+		patch.SetProposedAddress = true
+		if req.ProposedAddress != nil && strings.TrimSpace(*req.ProposedAddress) != "" {
+			trimmed := *req.ProposedAddress
+			if utf8.RuneCountInString(trimmed) > 500 {
+				details = append(details, httpx.FieldError{
+					Field:   "proposed_address",
+					Message: "Proposed address must be at most 500 characters.",
+				})
+			} else {
+				patch.ProposedAddress = &trimmed
+			}
+		}
+	}
+
+	_, hasLat := rawFields["latitude"]
+	_, hasLng := rawFields["longitude"]
+	if hasLat || hasLng {
+		patch.SetCoordinates = true
+		lat := existing.Latitude
+		lng := existing.Longitude
+		if hasLat {
+			lat = req.Latitude
+		}
+		if hasLng {
+			lng = req.Longitude
+		}
+		coordErrs := validateCoords(lat, lng)
+		if len(coordErrs) > 0 {
+			details = append(details, coordErrs...)
+		} else {
+			patch.Latitude = lat
+			patch.Longitude = lng
+		}
+	}
+
+	return patch, details
 }
 
 func validateCreateRequest(req createReportRequest) ([]httpx.FieldError, *string, *string, string) {

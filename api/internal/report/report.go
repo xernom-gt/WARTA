@@ -1,4 +1,4 @@
-// Package report models citizens' condition reports (§3.7, §6.11, §6.12).
+// Package report models citizens' condition reports (§3.7, §6.11-6.15).
 package report
 
 import (
@@ -99,11 +99,27 @@ type Report struct {
 	ExifStatus           string       `json:"-"`
 	ExifNotice           *string      `json:"-"`
 	Status               ReportStatus `json:"-"`
+	DeletedAt            *time.Time   `json:"-"`
 	CreatedAt            time.Time    `json:"-"`
 	UpdatedAt            time.Time    `json:"-"`
 	SubmittedAt          *time.Time   `json:"-"`
 	Media                []*Media     `json:"media"`
 	EvidencesCount       int          `json:"evidences_count"`
+}
+
+// DraftPatch carries the mutable fields of a draft report (§6.13).
+// Set* flags distinguish an omitted JSON key from an explicit null or value.
+type DraftPatch struct {
+	SetCategory        bool
+	Category           *string
+	SetNarrative       bool
+	Narrative          string
+	SetProposedAddress bool
+	ProposedAddress    *string
+	SetCoordinates     bool
+	Latitude           *float64
+	Longitude          *float64
+	UpdatedAt          time.Time
 }
 
 // Media is a row of report_media (§3.8).
@@ -134,6 +150,22 @@ type MediaView struct {
 	CreatedAt     string   `json:"created_at"`
 }
 
+// View renders the §7.1 JSON shape of a single report_media row.
+func (m *Media) View() MediaView {
+	return MediaView{
+		ID:            m.ID,
+		ReportID:      m.ReportID,
+		FileURL:       m.FileURL,
+		MediaType:     m.MediaType,
+		ExifLatitude:  m.ExifLatitude,
+		ExifLongitude: m.ExifLongitude,
+		ExifTakenAt:   httpx.ISO8601Ptr(m.ExifTakenAt),
+		IsGeotagValid: m.IsGeotagValid,
+		SortOrder:     m.SortOrder,
+		CreatedAt:     httpx.ISO8601(m.CreatedAt),
+	}
+}
+
 // ReportView is the JSON shape of the Report resource (§7.1).
 type ReportView struct {
 	ID                   string       `json:"id"`
@@ -160,18 +192,7 @@ type ReportView struct {
 func (r *Report) View() ReportView {
 	media := make([]MediaView, 0, len(r.Media))
 	for _, m := range r.Media {
-		media = append(media, MediaView{
-			ID:            m.ID,
-			ReportID:      m.ReportID,
-			FileURL:       m.FileURL,
-			MediaType:     m.MediaType,
-			ExifLatitude:  m.ExifLatitude,
-			ExifLongitude: m.ExifLongitude,
-			ExifTakenAt:   httpx.ISO8601Ptr(m.ExifTakenAt),
-			IsGeotagValid: m.IsGeotagValid,
-			SortOrder:     m.SortOrder,
-			CreatedAt:     httpx.ISO8601(m.CreatedAt),
-		})
+		media = append(media, m.View())
 	}
 	return ReportView{
 		ID:                   r.ID,
@@ -197,9 +218,13 @@ func (r *Report) View() ReportView {
 
 // Sentinel errors returned by Store operations.
 var (
-	ErrNotFound        = errors.New("report: not found")
-	ErrProjectNotFound = errors.New("report: project not found")
-	ErrNotDraft        = errors.New("report: report is not a draft")
+	ErrNotFound          = errors.New("report: not found")
+	ErrProjectNotFound   = errors.New("report: project not found")
+	ErrNotDraft          = errors.New("report: report is not a draft")
+	ErrDeleteLocked      = errors.New("report: report cannot be deleted after consensus")
+	ErrMediaNotFound     = errors.New("report: media not found")
+	ErrPhotoLimitReached = errors.New("report: maximum of 4 photos reached")
+	ErrSortOrderTaken    = errors.New("report: sort_order slot already in use")
 )
 
 // ListFilter carries the parsed query parameters of GET /users/me/reports.
@@ -224,23 +249,21 @@ type ListResult struct {
 	Meta Meta      `json:"meta"`
 }
 
-// Store reads and writes condition reports (§6.11, §6.12).
+// Store reads and writes condition reports and their media (§6.11-6.15).
 type Store interface {
-	// ListByUser lists the caller's reports, newest first, optionally
-	// filtered by status.
 	ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error)
-
-	// Create inserts a new report under r.ProjectID. When enqueue is true, it
-	// also creates the laporan_kondisi verification_items row in the same
-	// transaction (§6.11). Returns ErrProjectNotFound if r.ProjectID is unknown.
 	Create(ctx context.Context, r *Report, enqueue bool) (*Report, error)
-
-	// FindByID loads a single report with its author display name, media rows,
-	// and evidence count, or returns ErrNotFound.
 	FindByID(ctx context.Context, reportID string) (*Report, error)
-
-	// Submit transitions a draft report to menunggu, sets submitted_at, and
-	// creates its laporan_kondisi verification_items row (§6.12). Returns
-	// ErrNotFound if missing or ErrNotDraft if status is not draft.
 	Submit(ctx context.Context, reportID string, submittedAt time.Time) (*Report, error)
+	UpdateDraft(ctx context.Context, reportID string, patch DraftPatch) (*Report, error)
+	Delete(ctx context.Context, reportID string, deletedAt time.Time) error
+
+	// CreateMedia attaches a new report_media row to reportID at requestedSlot
+	// (or the lowest free slot 0..3 when requestedSlot is nil) per §6.15.
+	CreateMedia(ctx context.Context, reportID string, m *Media, requestedSlot *int) (*Media, error)
+
+	// DeleteMedia removes one report_media row while the report is still a
+	// draft (§6.19) and returns its stored file_url so the caller can remove
+	// the underlying object from storage.
+	DeleteMedia(ctx context.Context, reportID, mediaID string) (string, error)
 }

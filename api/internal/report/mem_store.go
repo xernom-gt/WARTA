@@ -24,6 +24,7 @@ type VerificationItem struct {
 	Status      string
 	TargetVotes int
 	CreatedAt   time.Time
+	ResolvedAt  *time.Time
 }
 
 // MemoryStore is the in-memory Store used by handler tests.
@@ -54,6 +55,16 @@ func (s *MemoryStore) Seed(r *Report, media []*Media, evidences int) {
 	s.reports = append(s.reports, r)
 	s.media[r.ID] = media
 	s.evidences[r.ID] = evidences
+	if r.Status == StatusMenunggu {
+		s.verificationItems = append(s.verificationItems, VerificationItem{
+			ID:          uuid.NewString(),
+			ItemType:    "laporan_kondisi",
+			ReportID:    r.ID,
+			Status:      string(StatusMenunggu),
+			TargetVotes: 3,
+			CreatedAt:   r.CreatedAt,
+		})
+	}
 }
 
 // SeedProject registers a project in memory with optional primary coordinates.
@@ -70,6 +81,13 @@ func (s *MemoryStore) VerificationItems() []VerificationItem {
 	out := make([]VerificationItem, len(s.verificationItems))
 	copy(out, s.verificationItems)
 	return out
+}
+
+// MediaCount returns the number of stored media rows for reportID.
+func (s *MemoryStore) MediaCount(reportID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.media[reportID])
 }
 
 // Create inserts a new report in memory and optionally enqueues its
@@ -122,14 +140,14 @@ func (s *MemoryStore) Create(ctx context.Context, r *Report, enqueue bool) (*Rep
 	return s.snapshotLocked(&stored), nil
 }
 
-// FindByID returns a copy of the report with its attached media and evidence
-// count, or ErrNotFound.
+// FindByID returns a copy of an active (non-soft-deleted) report with its
+// attached media and evidence count, or ErrNotFound.
 func (s *MemoryStore) FindByID(ctx context.Context, reportID string) (*Report, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, r := range s.reports {
-		if r.ID == reportID {
+		if r.ID == reportID && r.DeletedAt == nil {
 			return s.snapshotLocked(r), nil
 		}
 	}
@@ -143,7 +161,7 @@ func (s *MemoryStore) Submit(ctx context.Context, reportID string, submittedAt t
 	defer s.mu.Unlock()
 
 	for _, r := range s.reports {
-		if r.ID != reportID {
+		if r.ID != reportID || r.DeletedAt != nil {
 			continue
 		}
 		if r.Status != StatusDraft {
@@ -172,6 +190,85 @@ func (s *MemoryStore) Submit(ctx context.Context, reportID string, submittedAt t
 	return nil, ErrNotFound
 }
 
+// UpdateDraft applies partial edits to a draft report in memory (§6.13).
+func (s *MemoryStore) UpdateDraft(ctx context.Context, reportID string, patch DraftPatch) (*Report, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, r := range s.reports {
+		if r.ID != reportID || r.DeletedAt != nil {
+			continue
+		}
+		if r.Status != StatusDraft {
+			return nil, ErrNotDraft
+		}
+		if patch.SetCategory {
+			r.Category = patch.Category
+		}
+		if patch.SetNarrative {
+			r.Narrative = patch.Narrative
+		}
+		if patch.SetProposedAddress {
+			r.ProposedAddress = patch.ProposedAddress
+		}
+		if patch.SetCoordinates {
+			r.Latitude = patch.Latitude
+			r.Longitude = patch.Longitude
+			if r.Latitude == nil || r.Longitude == nil {
+				r.DistanceFromProjectM = nil
+			} else if proj, ok := s.projects[r.ProjectID]; ok && proj.Latitude != nil && proj.Longitude != nil {
+				d := HaversineMeters(*r.Latitude, *r.Longitude, *proj.Latitude, *proj.Longitude)
+				r.DistanceFromProjectM = &d
+			} else {
+				r.DistanceFromProjectM = nil
+			}
+		}
+		ts := patch.UpdatedAt.UTC()
+		if ts.IsZero() {
+			ts = time.Now().UTC()
+		}
+		r.UpdatedAt = ts
+		return s.snapshotLocked(r), nil
+	}
+	return nil, ErrNotFound
+}
+
+// Delete hard-deletes a draft report (including its media) or soft-deletes a
+// menunggu report and closes its verification item (§6.14).
+func (s *MemoryStore) Delete(ctx context.Context, reportID string, deletedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for idx, r := range s.reports {
+		if r.ID != reportID || r.DeletedAt != nil {
+			continue
+		}
+		ts := deletedAt.UTC()
+		if ts.IsZero() {
+			ts = time.Now().UTC()
+		}
+		switch r.Status {
+		case StatusDraft:
+			s.reports = append(s.reports[:idx], s.reports[idx+1:]...)
+			delete(s.media, reportID)
+			delete(s.evidences, reportID)
+			return nil
+		case StatusMenunggu:
+			r.DeletedAt = &ts
+			r.UpdatedAt = ts
+			for i := range s.verificationItems {
+				if s.verificationItems[i].ReportID == reportID && s.verificationItems[i].ResolvedAt == nil {
+					s.verificationItems[i].ResolvedAt = &ts
+				}
+			}
+			return nil
+		default:
+			return ErrDeleteLocked
+		}
+	}
+	return ErrNotFound
+}
+
 func (s *MemoryStore) snapshotLocked(r *Report) *Report {
 	copied := *r
 	copied.Media = []*Media{}
@@ -179,12 +276,93 @@ func (s *MemoryStore) snapshotLocked(r *Report) *Report {
 		cm := *m
 		copied.Media = append(copied.Media, &cm)
 	}
+	sort.Slice(copied.Media, func(i, j int) bool {
+		return copied.Media[i].SortOrder < copied.Media[j].SortOrder
+	})
 	copied.EvidencesCount = s.evidences[r.ID]
 	return &copied
 }
 
-// ListByUser mirrors the query store: caller's rows, newest first, optional
-// status filter, §10.4 clamped pagination.
+// CreateMedia inserts a media row in memory at requestedSlot or the lowest free
+// slot 0..3 (§6.15).
+func (s *MemoryStore) CreateMedia(ctx context.Context, reportID string, m *Media, requestedSlot *int) (*Media, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var found bool
+	for _, r := range s.reports {
+		if r.ID == reportID && r.DeletedAt == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrNotFound
+	}
+
+	used := map[int]bool{}
+	for _, existing := range s.media[reportID] {
+		used[existing.SortOrder] = true
+	}
+
+	slot, err := chooseMediaSlot(used, requestedSlot)
+	if err != nil {
+		return nil, err
+	}
+
+	created := *m
+	if created.ID == "" {
+		created.ID = uuid.NewString()
+	}
+	created.ReportID = reportID
+	created.SortOrder = slot
+	if created.CreatedAt.IsZero() {
+		created.CreatedAt = time.Now().UTC()
+	}
+
+	stored := created
+	s.media[reportID] = append(s.media[reportID], &stored)
+	sort.Slice(s.media[reportID], func(i, j int) bool {
+		return s.media[reportID][i].SortOrder < s.media[reportID][j].SortOrder
+	})
+
+	out := stored
+	return &out, nil
+}
+
+// DeleteMedia removes a media row from a draft report in memory and returns its
+// file_url (§6.19).
+func (s *MemoryStore) DeleteMedia(ctx context.Context, reportID, mediaID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Report
+	for _, r := range s.reports {
+		if r.ID == reportID && r.DeletedAt == nil {
+			target = r
+			break
+		}
+	}
+	if target == nil {
+		return "", ErrNotFound
+	}
+	if target.Status != StatusDraft {
+		return "", ErrNotDraft
+	}
+
+	items := s.media[reportID]
+	for i, m := range items {
+		if m.ID == mediaID {
+			fileURL := m.FileURL
+			s.media[reportID] = append(items[:i], items[i+1:]...)
+			return fileURL, nil
+		}
+	}
+	return "", ErrMediaNotFound
+}
+
+// ListByUser mirrors the query store: caller's active rows, newest first,
+// optional status filter, §10.4 clamped pagination.
 func (s *MemoryStore) ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error) {
 	page, limit := clampPage(filter.Page, filter.Limit)
 
@@ -193,7 +371,7 @@ func (s *MemoryStore) ListByUser(ctx context.Context, userID string, filter List
 
 	mine := make([]*Report, 0, len(s.reports))
 	for _, r := range s.reports {
-		if r.UserID != userID {
+		if r.UserID != userID || r.DeletedAt != nil {
 			continue
 		}
 		if filter.Status != nil && r.Status != *filter.Status {
