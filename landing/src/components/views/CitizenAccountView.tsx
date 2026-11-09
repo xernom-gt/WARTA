@@ -257,40 +257,43 @@ export default function CitizenAccountView() {
         <div
           role="tablist"
           aria-label="Riwayat kiriman warga"
-          className="inline-flex rounded-xl border border-slate-200 bg-white p-1"
+          className="grid w-full grid-cols-1 gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 sm:inline-flex sm:w-auto"
         >
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'laporan'}
             onClick={() => setTab('laporan')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
               tab === 'laporan' ? 'bg-brand text-white' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <FileText className="size-4" aria-hidden="true" /> Laporan Saya ({myReports.length})
+            <FileText className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">Laporan Saya ({myReports.length})</span>
           </button>
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'klaim'}
             onClick={() => setTab('klaim')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
               tab === 'klaim' ? 'bg-brand text-white' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <MapPin className="size-4" aria-hidden="true" /> Klaim Lokasi ({myClaims.length})
+            <MapPin className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">Klaim Lokasi ({myClaims.length})</span>
           </button>
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'suara'}
             onClick={() => setTab('suara')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
               tab === 'suara' ? 'bg-brand text-white' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <BadgeCheck className="size-4" aria-hidden="true" /> Riwayat Suara ({voteHistory.length})
+            <BadgeCheck className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">Riwayat Suara ({voteHistory.length})</span>
           </button>
         </div>
 
