@@ -13,6 +13,7 @@ import type {
 } from '../types/warta';
 import {
   CURRENT_USER,
+  SAMPLE_DATA,
   INITIAL_MY_CLAIMS,
   INITIAL_MY_REPORTS,
   INITIAL_VERIFICATION_QUEUE,
@@ -72,19 +73,19 @@ const defaultProfile = (displayName: string, email = 'warga.kebonjeruk@contoh.id
 });
 
 const initialState = (): WartaState => ({
-  currentUser: CURRENT_USER,
-  userProfile: defaultProfile(CURRENT_USER),
-  role: 'other',
+  currentUser: SAMPLE_DATA ? CURRENT_USER : null,
+  userProfile: SAMPLE_DATA ? defaultProfile(CURRENT_USER) : null,
+  role: SAMPLE_DATA ? 'other' : 'guest',
   mapCondition: 'normal',
-  activeScreen: 'peta',
+  activeScreen: 'aduan',
   selectedProjectId: null,
   selectedReportId: null,
   editingDraftId: null,
   compactRupiah: true,
-  queue: structuredClone(INITIAL_VERIFICATION_QUEUE),
-  myReports: structuredClone(INITIAL_MY_REPORTS),
-  myClaims: structuredClone(INITIAL_MY_CLAIMS),
-  voteHistory: structuredClone(INITIAL_VOTE_HISTORY),
+  queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
+  myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
+  myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
+  voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
   loginOpen: false,
 });
 

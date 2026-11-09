@@ -127,9 +127,11 @@ export interface VerificationItem {
   categoryLabel: string;
   authorDisplayName: string;
   createdAt: string;
-  distanceFromProject: string;
-  exifValid: boolean;
-  exifNotice: string;
+  /** Diisi server setelah foto diproses. Kosong selama backend belum tersambung. */
+  distanceFromProject?: string;
+  /** Hasil pemeriksaan EXIF oleh server. Kosong berarti belum diperiksa. */
+  exifValid?: boolean;
+  exifNotice?: string;
   narrative: string;
   proposedAddress: string;
   proposedPrecision?: PrecisionLevel;

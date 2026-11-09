@@ -7,6 +7,15 @@ import type {
   VoteRecord,
 } from '../types/warta';
 
+/**
+ * Data contoh (aduan, suara, akun warga) disembunyikan secara bawaan sampai
+ * API tersambung. Nyalakan untuk meninjau tampilan: tulis VITE_SAMPLE_DATA=1
+ * di landing/.env.local lalu jalankan ulang dev server.
+ */
+export const SAMPLE_DATA =
+  import.meta.env.VITE_SAMPLE_DATA === '1' ||
+  (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('sample') === '1');
+
 export const DATASET_SUMMARY = {
   totalRawPackages: 122,
   uniqueProjects: 118,
