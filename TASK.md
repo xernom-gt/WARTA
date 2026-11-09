@@ -65,11 +65,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 📝 Reports & Evidence
 
 ### Report CRUD
-- [ ] `POST /projects/{project_id}/reports` — Create draft (`submit: false`) or submit (`submit: true`); validate submit requirements; set `user_id` from auth; compute `distance_from_project`
+- [x] `POST /projects/{project_id}/reports` — Create draft (`submit: false`) or submit (`submit: true`); validate submit requirements; set `user_id` from auth; compute `distance_from_project`
 - [ ] `GET /reports/{report_id}` — Full detail with `media`, `evidences_count`, `distance_from_project_m`, `exif_status`, `exif_notice`
 - [ ] `PATCH /reports/{report_id}` — Author-only, draft-only; mutable: `category`, `narrative`, `proposed_address`, `latitude`, `longitude`
 - [ ] `DELETE /reports/{report_id}` — Author-only; draft = hard delete; `menunggu` = soft delete (`deleted_at`), close verification item, retain media/votes
-- [ ] `POST /reports/{report_id}/submit` — Author-only; draft→`menunggu`; set `submitted_at`; create `verification_items` row (`laporan_kondisi`); validate: category, address, narrative 20-500, ≥1 photo
+- [x] `POST /reports/{report_id}/submit` — Author-only; draft→`menunggu`; set `submitted_at`; create `verification_items` row (`laporan_kondisi`); validate: category, address, narrative 20-500, ≥1 photo
 
 ### Report Media
 - [ ] `GET /reports/{report_id}/media` — List photos ordered by `sort_order`

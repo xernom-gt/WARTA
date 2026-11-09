@@ -93,11 +93,30 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		MailFrom:   cfg.MailFrom,
 		VerifyBase: cfg.MailVerifyBaseURL,
 	})
+	reportStore := report.NewPGStore(pool)
 	userHandlers := user.NewHandler(user.Deps{
 		Store:       store,
-		ReportStore: report.NewPGStore(pool),
+		ReportStore: reportStore,
 		ClaimStore:  claim.NewPGStore(pool),
 		VoteStore:   verification.NewPGVoteStore(pool),
+	})
+	reportHandlers := report.NewHandler(report.Deps{
+		Store: reportStore,
+		CallerLookup: func(ctx context.Context, userID string) (*report.Caller, error) {
+			u, err := store.FindByID(ctx, userID)
+			if errors.Is(err, user.ErrNotFound) {
+				return nil, report.ErrCallerNotFound
+			}
+			if err != nil {
+				return nil, err
+			}
+			return &report.Caller{
+				ID:            u.ID,
+				DisplayName:   u.DisplayName,
+				IsActive:      u.IsActive,
+				EmailVerified: u.EmailVerifiedAt != nil,
+			}, nil
+		},
 	})
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
@@ -138,8 +157,10 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	// §6.4: public, no bearer. Deactivated profiles still return 200 with
 	// is_active=false (§7.4 keeps is_active in the public shape).
 	v1.Get("/users/:user_id", userHandlers.GetPublicUser)
+	v1.Post("/projects/:project_id/reports", middleware.Bearer(manager, bl), reportHandlers.Create)
+	v1.Post("/reports/:report_id/submit", middleware.Bearer(manager, bl), reportHandlers.Submit)
 
-return api{app: app}
+	return api{app: app}
 }
 
 // chooseMailer selects the delivery transport (§3.5): SMTP when a host is

@@ -1,11 +1,10 @@
-// Package report models the citizens' condition reports (§3.7). This
-// milestone exposes only the caller's own listing (GET /users/me/reports);
-// writes arrive with the reports milestone (TASK.md §Reports & Evidence).
+// Package report models citizens' condition reports (§3.7, §6.11, §6.12).
 package report
 
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"warta.com/api/internal/httpx"
@@ -16,15 +15,14 @@ type ReportStatus string
 
 // Valid ReportStatus values.
 const (
-	StatusDraft        ReportStatus = "draft"
-	StatusMenunggu     ReportStatus = "menunggu"
+	StatusDraft         ReportStatus = "draft"
+	StatusMenunggu      ReportStatus = "menunggu"
 	StatusTerverifikasi ReportStatus = "terverifikasi"
-	StatusDitolak      ReportStatus = "ditolak"
-	StatusSelesai      ReportStatus = "selesai"
+	StatusDitolak       ReportStatus = "ditolak"
+	StatusSelesai       ReportStatus = "selesai"
 )
 
-// ParseStatus maps a raw query value onto a ReportStatus, reporting validity
-// so handlers can render 422 for unknown values.
+// ParseStatus maps a raw value onto a ReportStatus.
 func ParseStatus(raw string) (ReportStatus, bool) {
 	switch ReportStatus(raw) {
 	case StatusDraft, StatusMenunggu, StatusTerverifikasi, StatusDitolak, StatusSelesai:
@@ -34,54 +32,106 @@ func ParseStatus(raw string) (ReportStatus, bool) {
 	}
 }
 
+// Valid report categories (§3.7 allowed values).
+const (
+	CategoryBelumMulai     = "belum_mulai"
+	CategoryLambatMangkrak = "lambat_mangkrak"
+	CategoryFisikRusak     = "fisik_rusak"
+	CategoryPapanTidakAda  = "papan_tidak_ada"
+	CategorySelesai        = "selesai"
+)
+
+// ParseCategory checks whether raw is one of the §3.7 report categories.
+func ParseCategory(raw string) (string, bool) {
+	switch raw {
+	case CategoryBelumMulai, CategoryLambatMangkrak, CategoryFisikRusak, CategoryPapanTidakAda, CategorySelesai:
+		return raw, true
+	default:
+		return "", false
+	}
+}
+
+// Valid EXIF status values (§3.7 allowed values).
+const (
+	ExifValid   = "valid"
+	ExifInvalid = "invalid"
+	ExifMissing = "missing"
+)
+
+// ParseExifStatus checks whether raw is one of the §3.7 EXIF statuses.
+func ParseExifStatus(raw string) (string, bool) {
+	switch raw {
+	case ExifValid, ExifInvalid, ExifMissing:
+		return raw, true
+	default:
+		return "", false
+	}
+}
+
+// HaversineMeters computes the great-circle distance in meters between two
+// WGS-84 coordinates, rounded to two decimal places to match DECIMAL(10, 2).
+func HaversineMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusM = 6371000.0
+	toRad := math.Pi / 180.0
+	dLat := (lat2 - lat1) * toRad
+	dLon := (lon2 - lon1) * toRad
+	rLat1 := lat1 * toRad
+	rLat2 := lat2 * toRad
+
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(rLat1)*math.Cos(rLat2)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return math.Round(earthRadiusM*c*100) / 100
+}
+
 // Report is a row of the reports table joined with its author's display name.
 type Report struct {
-	ID                   string      `json:"-"`
-	ProjectID            string      `json:"-"`
-	UserID               string      `json:"-"`
-	AuthorDisplayName    string      `json:"-"`
-	Category             *string     `json:"-"`
-	Narrative            string      `json:"-"`
-	ProposedAddress      *string     `json:"-"`
-	Latitude             *float64    `json:"-"`
-	Longitude            *float64    `json:"-"`
-	DistanceFromProjectM *float64    `json:"-"`
-	ExifStatus           string      `json:"-"`
-	ExifNotice           *string     `json:"-"`
+	ID                   string       `json:"-"`
+	ProjectID            string       `json:"-"`
+	UserID               string       `json:"-"`
+	AuthorDisplayName    string       `json:"-"`
+	Category             *string      `json:"-"`
+	Narrative            string       `json:"-"`
+	ProposedAddress      *string      `json:"-"`
+	Latitude             *float64     `json:"-"`
+	Longitude            *float64     `json:"-"`
+	DistanceFromProjectM *float64     `json:"-"`
+	ExifStatus           string       `json:"-"`
+	ExifNotice           *string      `json:"-"`
 	Status               ReportStatus `json:"-"`
-	CreatedAt            time.Time   `json:"-"`
-	UpdatedAt            time.Time   `json:"-"`
-	SubmittedAt          *time.Time  `json:"-"`
-	Media                []*Media    `json:"media"`
-	EvidencesCount       int         `json:"evidences_count"`
+	CreatedAt            time.Time    `json:"-"`
+	UpdatedAt            time.Time    `json:"-"`
+	SubmittedAt          *time.Time   `json:"-"`
+	Media                []*Media     `json:"media"`
+	EvidencesCount       int          `json:"evidences_count"`
 }
 
 // Media is a row of report_media (§3.8).
 type Media struct {
-	ID             string     `json:"-"`
-	ReportID       string     `json:"-"`
-	FileURL        string     `json:"-"`
-	MediaType      string     `json:"-"`
-	ExifLatitude   *float64   `json:"-"`
-	ExifLongitude  *float64   `json:"-"`
-	ExifTakenAt    *time.Time `json:"-"`
-	IsGeotagValid  *bool      `json:"-"`
-	SortOrder      int        `json:"-"`
-	CreatedAt      time.Time  `json:"-"`
+	ID            string     `json:"-"`
+	ReportID      string     `json:"-"`
+	FileURL       string     `json:"-"`
+	MediaType     string     `json:"-"`
+	ExifLatitude  *float64   `json:"-"`
+	ExifLongitude *float64   `json:"-"`
+	ExifTakenAt   *time.Time `json:"-"`
+	IsGeotagValid *bool      `json:"-"`
+	SortOrder     int        `json:"-"`
+	CreatedAt     time.Time  `json:"-"`
 }
 
 // MediaView is the JSON shape of one report photo (§7 Report.media items).
 type MediaView struct {
-	ID            string  `json:"id"`
-	ReportID      string  `json:"report_id"`
-	FileURL       string  `json:"file_url"`
-	MediaType     string  `json:"media_type"`
+	ID            string   `json:"id"`
+	ReportID      string   `json:"report_id"`
+	FileURL       string   `json:"file_url"`
+	MediaType     string   `json:"media_type"`
 	ExifLatitude  *float64 `json:"exif_latitude"`
 	ExifLongitude *float64 `json:"exif_longitude"`
 	ExifTakenAt   *string  `json:"exif_taken_at"`
 	IsGeotagValid *bool    `json:"is_geotag_valid"`
-	SortOrder     int     `json:"sort_order"`
-	CreatedAt     string  `json:"created_at"`
+	SortOrder     int      `json:"sort_order"`
+	CreatedAt     string   `json:"created_at"`
 }
 
 // ReportView is the JSON shape of the Report resource (§7.1).
@@ -145,8 +195,12 @@ func (r *Report) View() ReportView {
 	}
 }
 
-// ErrNotFound is returned by lookups when no row matches.
-var ErrNotFound = errors.New("report: not found")
+// Sentinel errors returned by Store operations.
+var (
+	ErrNotFound        = errors.New("report: not found")
+	ErrProjectNotFound = errors.New("report: project not found")
+	ErrNotDraft        = errors.New("report: report is not a draft")
+)
 
 // ListFilter carries the parsed query parameters of GET /users/me/reports.
 // Page defaults to 1; Limit defaults to 20 and clamps at 100 (§10.4).
@@ -170,10 +224,23 @@ type ListResult struct {
 	Meta Meta      `json:"meta"`
 }
 
-// Store reads reports for the /users/me family. Writes land with the
-// reports milestone and extend this interface.
+// Store reads and writes condition reports (§6.11, §6.12).
 type Store interface {
 	// ListByUser lists the caller's reports, newest first, optionally
 	// filtered by status.
 	ListByUser(ctx context.Context, userID string, filter ListFilter) (*ListResult, error)
+
+	// Create inserts a new report under r.ProjectID. When enqueue is true, it
+	// also creates the laporan_kondisi verification_items row in the same
+	// transaction (§6.11). Returns ErrProjectNotFound if r.ProjectID is unknown.
+	Create(ctx context.Context, r *Report, enqueue bool) (*Report, error)
+
+	// FindByID loads a single report with its author display name, media rows,
+	// and evidence count, or returns ErrNotFound.
+	FindByID(ctx context.Context, reportID string) (*Report, error)
+
+	// Submit transitions a draft report to menunggu, sets submitted_at, and
+	// creates its laporan_kondisi verification_items row (§6.12). Returns
+	// ErrNotFound if missing or ErrNotDraft if status is not draft.
+	Submit(ctx context.Context, reportID string, submittedAt time.Time) (*Report, error)
 }
