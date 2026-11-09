@@ -11,20 +11,20 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [x] `POST /auth/login` — Verify credentials, issue JWT (3600s), return token + private profile
 - [x] `POST /auth/verify-email` — Consume single-use token, set `email_verified_at`, return private profile
 - [x] `POST /auth/resend-verification` — Authenticated, invalidate old token, send new (3/hr limit), return 204
-- [ ] `POST /auth/logout` — Revoke current token (blocklist or short expiry), return 204
+- [x] `POST /auth/logout` — Revoke current token (blocklist or short expiry), return 204
 - [x] `GET /auth/me` — Return private profile (only endpoint exposing `email`)
 
 ### User Profile Endpoints
-- [ ] `PATCH /users/me` — Update `display_name` (unique, 3-24 chars, alphanum + underscore)
-- [ ] `DELETE /users/me` — Set `is_active = false`, return 204
-- [ ] `GET /users/me/reports` — Paginated list of caller's reports (filter: status)
-- [ ] `GET /users/me/claims` — Paginated list of caller's location claims (filter: status)
-- [ ] `GET /users/me/votes` — Paginated vote history with current resolution per item
-- [ ] `GET /users/{user_id}` — Public profile only (`id`, `display_name`, `is_active`, `created_at`)
+- [x] `PATCH /users/me` — Update `display_name` (unique, 3-24 chars, alphanum + underscore)
+- [x] `DELETE /users/me` — Set `is_active = false`, return 204
+- [x] `GET /users/me/reports` — Paginated list of caller's reports (filter: status)
+- [x] `GET /users/me/claims` — Paginated list of caller's location claims (filter: status)
+- [x] `GET /users/me/votes` — Paginated vote history with current resolution per item
+- [x] `GET /users/{user_id}` — Public profile only (`id`, `display_name`, `is_active`, `created_at`)
 
 ### Auth Infrastructure
 - [x] JWT signing/verification (HS256 or RS256)
-- [ ] Token blocklist or short expiry + refresh strategy
+- [x] Token blocklist or short expiry + refresh strategy
 - [x] Password hashing (bcrypt/argon2, 72-byte limit)
 - [x] Email verification token: generate, hash, store in `auth_tokens`, 24hr expiry, single-use
 - [x] Rate limiting: login (min/IP), register (hour/IP), resend-verification (3/hr per account)
@@ -111,7 +111,8 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 🏗 Infrastructure & Cross-Cutting
 
 ### Database
-- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — M1 (users) done; `auth_tokens` landed early as 000002 for email verification (see §9.2 implementation note)- [ ] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
+- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — done so far: M1 (users), 000002 (auth_tokens landed early), 000003 M2 (projects/years/tenders/locations/risk flags), 000004 M3 (reports/report_media), 000005 M4 (location_claims/claim_media), 000006 M5 (verification_items/votes), 000007 M6 (evidences/evidence_media). Remaining: M9 hardening (`reports.deleted_at`, `search_vector`, `pg_trgm`, GIN/partial indexes).
+- [ ] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
 - [ ] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
 - [ ] Seed data for local dev (8 projects, 3 citizens, 3 verification items, vote history)
 

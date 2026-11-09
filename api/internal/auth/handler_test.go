@@ -50,8 +50,8 @@ func newTestApp(t *testing.T) (*fiber.App, *user.MemoryStore, *token.Manager, *a
 	app.Post("/auth/register", h.Register)
 	app.Post("/auth/login", h.Login)
 	app.Post("/auth/verify-email", h.VerifyEmail)
-	app.Post("/auth/resend-verification", middleware.Bearer(manager), resend, h.ResendVerification)
-	app.Get("/auth/me", middleware.Bearer(manager), h.Me)
+	app.Post("/auth/resend-verification", middleware.Bearer(manager, nil), resend, h.ResendVerification)
+	app.Get("/auth/me", middleware.Bearer(manager, nil), h.Me)
 	return app, store, manager, tokens, mail
 }
 

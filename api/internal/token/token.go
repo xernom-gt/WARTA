@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // Algorithm is the only signing algorithm the API accepts.
@@ -55,6 +56,7 @@ func (m *Manager) Issue(userID string) (string, error) {
 	claims := jwt.RegisteredClaims{
 		Issuer:    Issuer,
 		Subject:   userID,
+		ID:        uuid.New().String(), // jti claim for revocation
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(m.ttl)),
 	}
@@ -82,4 +84,44 @@ func (m *Manager) Verify(raw string) (string, error) {
 		return "", ErrInvalid
 	}
 	return claims.Subject, nil
+}
+
+// ExtractJTI returns the JWT ID (jti) claim from a token without verifying signature.
+// Used by the blocklist middleware to identify tokens for revocation checks.
+func (m *Manager) ExtractJTI(raw string) (string, error) {
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{Algorithm}),
+		jwt.WithIssuer(Issuer),
+	)
+	parsed, err := parser.ParseWithClaims(raw, &jwt.RegisteredClaims{}, func(*jwt.Token) (any, error) {
+		return m.secret, nil
+	})
+	if err != nil {
+		return "", ErrInvalid
+	}
+	claims, ok := parsed.Claims.(*jwt.RegisteredClaims)
+	if !ok || claims.ID == "" {
+		return "", ErrInvalid
+	}
+	return claims.ID, nil
+}
+
+// ExtractExpiry returns the token's expiry time (exp claim) without verifying
+// the signature. Returns ErrInvalid if the token is malformed or missing exp.
+func (m *Manager) ExtractExpiry(raw string) (time.Time, error) {
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{Algorithm}),
+		jwt.WithIssuer(Issuer),
+	)
+	parsed, err := parser.ParseWithClaims(raw, &jwt.RegisteredClaims{}, func(*jwt.Token) (any, error) {
+		return m.secret, nil
+	})
+	if err != nil {
+		return time.Time{}, ErrInvalid
+	}
+	claims, ok := parsed.Claims.(*jwt.RegisteredClaims)
+	if !ok || claims.ExpiresAt == nil {
+		return time.Time{}, ErrInvalid
+	}
+	return claims.ExpiresAt.Time, nil
 }

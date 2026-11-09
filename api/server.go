@@ -24,14 +24,18 @@ import (
 
 	"warta.com/api/internal/auth"
 	"warta.com/api/internal/authtoken"
+	"warta.com/api/internal/blocklist"
+	"warta.com/api/internal/claim"
 	"warta.com/api/internal/config"
 	"warta.com/api/internal/db"
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
+	"warta.com/api/internal/report"
 	"warta.com/api/internal/token"
 	"warta.com/api/internal/user"
+	"warta.com/api/internal/verification"
 )
 
 // start anchors process uptime for /health (§14.5).
@@ -72,6 +76,7 @@ func main() {
 func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	manager := token.NewManager(string(cfg.JWTSecret), cfg.JWTTTL)
 	tokens := authtoken.NewPGStore(pool)
+	bl := blocklist.NewMemStore()
 	mail := chooseMailer(cfg)
 	resendLimit := middleware.NewRateLimiter(cfg.ResendRateLimit, time.Hour)
 
@@ -79,9 +84,16 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		Store:      store,
 		Manager:    manager,
 		Tokens:     tokens,
+		Blocklist:  bl,
 		Mail:       mail,
 		MailFrom:   cfg.MailFrom,
 		VerifyBase: cfg.MailVerifyBaseURL,
+	})
+	userHandlers := user.NewHandler(user.Deps{
+		Store:       store,
+		ReportStore: report.NewPGStore(pool),
+		ClaimStore:  claim.NewPGStore(pool),
+		VoteStore:   verification.NewPGVoteStore(pool),
 	})
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
@@ -104,15 +116,26 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	// §6.21 rate limiting is per account, so the identity middleware must
 	// run before the limiter: the key is the bearer-verified user id.
 	v1.Post("/auth/resend-verification",
-		middleware.Bearer(manager),
+		middleware.Bearer(manager, bl),
 		resendLimit.MiddlewareForKey(func(c fiber.Ctx) string {
 			id, _ := c.Locals(middleware.LocalUserID).(string)
 			return id
 		}),
 		handlers.ResendVerification)
-	v1.Get("/auth/me", middleware.Bearer(manager), handlers.Me)
+	v1.Get("/auth/me", middleware.Bearer(manager, bl), handlers.Me)
+	v1.Post("/auth/logout", middleware.Bearer(manager, bl), handlers.Logout)
+	v1.Patch("/users/me", middleware.Bearer(manager, bl), userHandlers.UpdateMe)
+	v1.Delete("/users/me", middleware.Bearer(manager, bl), userHandlers.DeleteMe)
+	// §6.x: the /users/me family is the caller's own view — "me" is a
+	// reserved alias (api-guidelines §5), so it never routes to :user_id.
+	v1.Get("/users/me/reports", middleware.Bearer(manager, bl), userHandlers.ListMyReports)
+	v1.Get("/users/me/claims", middleware.Bearer(manager, bl), userHandlers.ListMyClaims)
+	v1.Get("/users/me/votes", middleware.Bearer(manager, bl), userHandlers.ListMyVotes)
+	// §6.4: public, no bearer. Deactivated profiles still return 200 with
+	// is_active=false (§7.4 keeps is_active in the public shape).
+	v1.Get("/users/:user_id", userHandlers.GetPublicUser)
 
-	return api{app: app}
+return api{app: app}
 }
 
 // chooseMailer selects the delivery transport (§3.5): SMTP when a host is

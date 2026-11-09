@@ -61,6 +61,15 @@ type Store interface {
 	// FindByID performs an exact match on the UUID primary key.
 	FindByID(ctx context.Context, id string) (*User, error)
 
+	// UpdateDisplayName updates the user's display name. The implementation
+	// must enforce case-insensitive uniqueness and return *DuplicateError
+	// on conflict. Returns ErrNotFound if the user doesn't exist.
+	UpdateDisplayName(ctx context.Context, id, displayName string) (*User, error)
+
+	// Deactivate sets is_active = false. Returns ErrNotFound if the user
+	// doesn't exist.
+	Deactivate(ctx context.Context, id string) (*User, error)
+
 	// MarkEmailVerified stamps the first verification time and returns the
 	// updated row. An account already carrying email_verified_at yields
 	// *ErrAlreadyVerified; a missing row yields ErrNotFound. The guard

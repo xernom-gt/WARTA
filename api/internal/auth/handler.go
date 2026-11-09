@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 
 	"warta.com/api/internal/authtoken"
+	"warta.com/api/internal/blocklist"
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
@@ -25,6 +26,7 @@ type Handler struct {
 	store   user.Store
 	manager *token.Manager
 	tokens  authtoken.Store
+	bl      blocklist.Store
 	mail    mailer.Service
 	// mailFrom is the RFC 5322 From header of outgoing mail (config MAIL_FROM).
 	mailFrom string
@@ -39,6 +41,7 @@ type Deps struct {
 	Store      user.Store
 	Manager    *token.Manager
 	Tokens     authtoken.Store
+	Blocklist  blocklist.Store
 	Mail       mailer.Service
 	MailFrom   string
 	VerifyBase string
@@ -50,6 +53,7 @@ func NewHandler(d Deps) *Handler {
 		store:      d.Store,
 		manager:    d.Manager,
 		tokens:     d.Tokens,
+		bl:         d.Blocklist,
 		mail:       d.Mail,
 		mailFrom:   d.MailFrom,
 		verifyBase: d.VerifyBase,
@@ -328,6 +332,46 @@ func (h *Handler) ResendVerification(c fiber.Ctx) error {
 	h.deliverVerification(c.Context(), u)
 	return c.SendStatus(fiber.StatusNoContent)
 }
+
+// Logout implements POST /auth/logout: revokes the current access token by
+// adding its jti to the blocklist with the token's remaining TTL.
+// Returns 204 on success. Requires authentication.
+func (h *Handler) Logout(c fiber.Ctx) error {
+	raw, ok := middleware.BearerTokenOf(c)
+	if !ok {
+		return httpx.Error(c, fiber.StatusUnauthorized, "token_expired",
+			"Missing or invalid access token.")
+	}
+
+	// Extract the token's jti and expiry for blocklist entry
+	jti, err := h.manager.ExtractJTI(raw)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusUnauthorized, "token_expired",
+			"Missing or invalid access token.")
+	}
+
+	expiresAt, err := h.manager.ExtractExpiry(raw)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusUnauthorized, "token_expired",
+			"Missing or invalid access token.")
+	}
+
+	if time.Now().After(expiresAt) {
+		return httpx.Error(c, fiber.StatusUnauthorized, "token_expired",
+			"The access token has expired.")
+	}
+
+	// Add to blocklist
+	if h.bl != nil {
+		if err := h.bl.Add(c.Context(), jti, expiresAt); err != nil {
+			return httpx.Error(c, fiber.StatusInternalServerError, "internal_error",
+				"Failed to revoke token.")
+		}
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 
 // deliverVerification issues a fresh 24-hour single-use token (§3.5) and
 // hands the matching mail to the configured transport. Failures are logged,

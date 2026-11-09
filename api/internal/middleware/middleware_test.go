@@ -190,7 +190,7 @@ func TestBearerAcceptsValidToken(t *testing.T) {
 func authApp(ttl time.Duration) (*fiber.App, *token.Manager) {
 	manager := token.NewManager("auth-test-secret-0123456789", ttl)
 	app := fiber.New()
-	app.Get("/me", Bearer(manager), func(c fiber.Ctx) error {
+	app.Get("/me", Bearer(manager, nil), func(c fiber.Ctx) error {
 		id, _ := c.Locals(LocalUserID).(string)
 		return c.SendString(id)
 	})

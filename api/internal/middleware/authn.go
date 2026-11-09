@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"warta.com/api/internal/blocklist"
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/token"
 )
@@ -16,13 +17,16 @@ const LocalUserID = "warta.user_id"
 // (api-requirements §3.1). Tokens are never accepted from anywhere else
 // (api-guidelines §5.2).
 //
+// If a blocklist store is provided, tokens whose jti is present in the blocklist
+// are rejected with 401 token_revoked.
+//
 // Error mapping: the catalogue defines token_expired as the 401 auth code,
 // and the OpenAPI Unauthorized example pins it for the entire
 // "missing, expired, or invalid token" family, so every bearer failure
 // surfaces as 401 token_expired with a message stating the precise reason.
 // invalid_credentials is never used here; it belongs to the login flow
 // alone (§9.3).
-func Bearer(tm *token.Manager) fiber.Handler {
+func Bearer(tm *token.Manager, bl blocklist.Store) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		raw, ok := bearerTokenOf(c)
 		if !ok {
@@ -32,6 +36,15 @@ func Bearer(tm *token.Manager) fiber.Handler {
 		userID, err := tm.Verify(raw)
 		switch {
 		case err == nil:
+			if bl != nil {
+				jti, je := tm.ExtractJTI(raw)
+				if je == nil {
+					revoked, re := bl.Contains(c.Context(), jti)
+					if re == nil && revoked {
+						return unauthorized(c, "The access token has been revoked.")
+					}
+				}
+			}
 			c.Locals(LocalUserID, userID)
 			return c.Next()
 		case err == token.ErrExpired:
@@ -42,9 +55,10 @@ func Bearer(tm *token.Manager) fiber.Handler {
 	}
 }
 
-// bearerTokenOf extracts the token after a case-insensitive Bearer scheme
+// BearerTokenOf extracts the token after a case-insensitive Bearer scheme
 // token per RFC 7235 (auth-scheme tokens are case-insensitive).
-func bearerTokenOf(c fiber.Ctx) (string, bool) {
+// Exported for use by handlers that need raw token access (e.g., logout).
+func BearerTokenOf(c fiber.Ctx) (string, bool) {
 	header := c.Get(fiber.HeaderAuthorization)
 	scheme, tokenValue, found := strings.Cut(header, " ")
 	if !found || !strings.EqualFold(scheme, "Bearer") {
@@ -55,6 +69,11 @@ func bearerTokenOf(c fiber.Ctx) (string, bool) {
 		return "", false
 	}
 	return tokenValue, true
+}
+
+// bearerTokenOf is the internal unexported variant.
+func bearerTokenOf(c fiber.Ctx) (string, bool) {
+	return BearerTokenOf(c)
 }
 
 // unauthorized renders the 401 envelope with WWW-Authenticate semantics kept

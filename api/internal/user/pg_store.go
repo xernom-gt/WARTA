@@ -98,6 +98,53 @@ func (s *PGStore) MarkEmailVerified(ctx context.Context, id string, at time.Time
 	return nil, ErrAlreadyVerified
 }
 
+// UpdateDisplayName updates the display name with case-insensitive uniqueness.
+// The unique index in M1 is the authority; we map its violation to DuplicateError.
+func (s *PGStore) UpdateDisplayName(ctx context.Context, id, displayName string) (*User, error) {
+	const q = `
+		UPDATE users
+		SET display_name = $2
+		WHERE id = $1
+		RETURNING ` + userColumns
+	u := new(User)
+	err := s.pool.QueryRow(ctx, q, id, displayName).Scan(
+		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash,
+		&u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+			return nil, duplicateFromConstraint(pgErr.ConstraintName)
+		}
+		return nil, err
+	}
+	return u, nil
+}
+
+// Deactivate sets is_active = false.
+func (s *PGStore) Deactivate(ctx context.Context, id string) (*User, error) {
+	const q = `
+		UPDATE users
+		SET is_active = false
+		WHERE id = $1
+		RETURNING ` + userColumns
+	u := new(User)
+	err := s.pool.QueryRow(ctx, q, id).Scan(
+		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash,
+		&u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return u, nil
+}
+
 // scanOne normalises "no rows" into ErrNotFound for every lookup query.
 func scanOne(row pgx.Row) (*User, error) {
 	u := &User{}

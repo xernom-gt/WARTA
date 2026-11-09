@@ -114,3 +114,40 @@ func (s *MemoryStore) MarkEmailVerified(_ context.Context, id string, at time.Ti
 	s.byID[id] = &stored
 	return &stored, nil
 }
+
+// UpdateDisplayName updates the display name with case-insensitive uniqueness.
+func (s *MemoryStore) UpdateDisplayName(_ context.Context, id, displayName string) (*User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	lowerNew := strings.ToLower(displayName)
+	if existingID, clash := s.byName[lowerNew]; clash && existingID != id {
+		return nil, &DuplicateError{Field: DuplicateDisplayName}
+	}
+	lowerOld := strings.ToLower(u.DisplayName)
+	delete(s.byName, lowerOld)
+	s.byName[lowerNew] = id
+	stored := *u
+	stored.DisplayName = displayName
+	stored.UpdatedAt = time.Now().UTC()
+	s.byID[id] = &stored
+	return &stored, nil
+}
+
+// Deactivate sets is_active = false.
+func (s *MemoryStore) Deactivate(_ context.Context, id string) (*User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	stored := *u
+	stored.IsActive = false
+	stored.UpdatedAt = time.Now().UTC()
+	s.byID[id] = &stored
+	return &stored, nil
+}
