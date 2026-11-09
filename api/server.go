@@ -102,6 +102,8 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	})
 	claimHandlers := claim.NewHandler(claim.NewPGStore(pool))
 	projectHandlers := project.NewHandler(project.NewPGStore(pool))
+	queueStore := verification.NewPGQueueStore(pool)
+	verificationHandlers := verification.NewHandler(queueStore, verification.NewPGVoteStore(pool))
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
 
@@ -159,6 +161,10 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Get("/location-claims/:claim_id/media", claimHandlers.GetClaimMedia)
 	v1.Post("/location-claims/:claim_id/media", middleware.Bearer(manager, bl), claimHandlers.UploadClaimMedia)
 	v1.Delete("/location-claims/:claim_id/media/:media_id", middleware.Bearer(manager, bl), claimHandlers.DeleteClaimMedia)
+
+	// §5.5: unified verification queue endpoints.
+	v1.Get("/verification-items", verificationHandlers.ListQueue)
+	v1.Get("/verification-items/:item_id", verificationHandlers.GetItem)
 
 return api{app: app}
 }
