@@ -1,6 +1,6 @@
 # Commit Conventions
 
-We use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for our pull request titles (and commit messages on the master branch). Please follow the guidelines below when naming pull requests.
+We use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for our pull request titles (and commit messages on the main branch). Please follow the guidelines below when naming pull requests.
 
 ---
 
@@ -16,7 +16,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) fo
 | `refactor` | A code change that neither fixes a bug nor adds a feature, but makes the code easier to read, understand, or improve |
 | `perf` | A code change that improves performance |
 | `test` | Adding missing tests or correcting existing tests |
-| `build` | Changes that affect the build system or external dependencies (example scopes: vite, tsup-node, npm) |
+| `build` | Changes that affect the build system or external dependencies (example scopes: vite, pnpm) |
 | `ci` | Changes to our CI configuration files and scripts (example scopes: GitHub Workflows) |
 | `revert` | Reverts a previous commit |
 | `chore` | Other changes that don't apply to any of the above |
@@ -105,9 +105,9 @@ This reverts commit abc1234.
 | `refactor` | `refactor(projects): extract location view into shared query` |
 | `perf` | `perf(api): add partial index on verification_items(status)` |
 | `test` | `test(reports): add submit validation edge cases` |
-| `build` | `build(deps): upgrade Drizzle ORM to 0.30` |
+| `build` | `build(deps): upgrade pgx/v5 to 5.12` |
 | `ci` | `ci: add commitlint check on PR title` |
-| `chore` | `chore: remove unused eslint config` |
+| `chore` | `chore: remove unused oxlint config` |
 | `revert` | `revert: feat(api): add project map pins endpoint` |
 
 ---

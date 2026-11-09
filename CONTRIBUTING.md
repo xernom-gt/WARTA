@@ -39,11 +39,12 @@ git checkout -b docs/db-migration-M9-notes
 
 - Make small, focused commits.
 - Commit messages on feature branches can be informal.
-- Run lint/type-check before pushing:
+- Run lint and the type-check (part of build) before pushing:
   ```bash
-  # In each app directory
-  npm run lint
-  npm run typecheck
+  # From the repo root
+  pnpm -r lint      # oxlint
+  pnpm build        # runs tsc -b per app — the only typecheck
+  cd api && go test ./...
   ```
 
 ### 4. Push and Open PR
@@ -54,14 +55,14 @@ git push origin feat/api-project-map-pins
 
 Open a Pull Request against `main`.
 
-**PR Title MUST follow Conventional Commits** (see `docs/commit-guidelines.md`):
+**PR Title MUST follow Conventional Commits** (see `docs/COMMIT_GUIDELINES.md`):
 ```
 feat(api): add project map pins endpoint
 ```
 
 ### 5. Review & Merge
 
-- CI runs: lint, type-check, tests.
+- No CI exists — run lint, type-check, and tests yourself before pushing.
 - At least one approval required.
 - **Squash and merge** — the PR title becomes the final commit on `main`.
 - Branch is deleted after merge.
@@ -91,8 +92,9 @@ Quick reference:
 ### Prerequisites
 
 - Node.js 20+
-- PostgreSQL 16+ (or Docker)
-- pnpm 9+
+- Go 1.26+
+- Docker (PostgreSQL 16 via `docker compose up -d db`, host port 5433)
+- pnpm 12.3.4 (pinned via `packageManager` in root `package.json`)
 
 ### Setup
 
@@ -100,27 +102,30 @@ Quick reference:
 # Install dependencies
 pnpm install
 
-# Start database (if using Docker)
+# Start database
 docker compose up -d db
 
-# Run migrations
-pnpm db:migrate
+# Start the API (migrations run automatically at startup;
+# WARTA_SEED=1 seeds 3 dev citizens when the users table is empty)
+cd api
+DATABASE_URL=postgres://warta:warta@localhost:5433/warta?sslmode=disable \
+JWT_SECRET=$(openssl rand -base64 48) WARTA_SEED=1 go run .
 
-# Seed development data
-pnpm db:seed
-
-# Start dev servers
-pnpm dev
+# Start frontends (from the repo root)
+pnpm dev           # admin (Vite, port 5173)
+pnpm dev:landing   # landing (Vite, port 5174)
 ```
+
+Env vars are documented in `.env.example`.
 
 ### Project Structure
 
 ```
-├── admin/          # Admin frontend (React + Vite)
-├── landing/        # Public frontend (React + Vite)
-├── api/            # Backend API (Hono/Express + Drizzle)
-├── docs/           # Documentation
-└── package.json    # Workspace root
+├── admin/          # Admin frontend (React 19 + Vite + Tailwind v4)
+├── landing/        # Public frontend (React 19 + Vite + Tailwind v4)
+├── api/            # Backend API (Go + Fiber v3 + pgx/v5, no ORM)
+├── docs/           # OpenAPI contract, guidelines, DB design
+└── package.json    # pnpm workspace root
 ```
 
 Each app has its own `package.json` and commands.
@@ -129,27 +134,26 @@ Each app has its own `package.json` and commands.
 
 ## Coding Standards
 
-- **TypeScript strict mode** — no `any` without justification.
-- **ESLint + Prettier** — run `npm run format` before committing.
+- **TypeScript** — keep `pnpm build` green (`tsc -b` runs `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`); avoid `any`.
+- **Linting** — oxlint via `pnpm -r lint`; no ESLint or Prettier (no formatter hooks exist).
 - **No console.log in production code** — use structured logging.
-- **Error handling** — never swallow errors; return typed error responses.
-- **Database** — use Drizzle ORM; raw SQL only when necessary.
+- **Error handling** — never swallow errors; render the `httpx` envelope (`{ error: { code, message, details[] } }`).
+- **Database** — raw SQL through pgx/v5; schema changes go in paired `.up.sql`/`.down.sql` migrations under `api/internal/db/migrations/`.
 
 ---
 
 ## Testing
 
 ```bash
-# Unit tests
-npm run test
-
-# E2E tests (requires running dev servers)
-npm run test:e2e
+# API tests (handler tests run the Fiber stack with in-memory stores;
+# no Postgres/Docker needed)
+cd api && go test ./...
 ```
 
 - Write tests for new business logic.
-- Test edge cases: validation, auth, concurrency.
+- Test edge cases: validation, auth, rate limits, business rule conflicts.
 - Mock external services (email, object storage).
+- No frontend test runner or E2E suite exists yet.
 
 ---
 
@@ -164,10 +168,9 @@ Update docs when you change:
 
 ## Release Process
 
-1. Version bump in `package.json` (root and apps).
-2. `CHANGELOG.md` updated (auto-generated from conventional commits).
-3. Tag: `git tag v1.2.0 && git push origin v1.2.0`.
-4. CI builds and deploys.
+Not formalized yet — there is no CI/CD pipeline, `CHANGELOG.md`, or release
+script. Releases are manual: bump versions in `package.json` (root and apps)
+if needed and tag from `main`.
 
 ---
 

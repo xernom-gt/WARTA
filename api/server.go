@@ -1,15 +1,19 @@
 // WARTA API server: /health plus the /api/v1 contract. This milestone lands
-// the auth foundation plus email verification (TASK.md §Auth & User Profile):
+// the full auth + user profile surface (TASK.md §Auth & User Profile):
 //
 //	POST /api/v1/auth/register             create an account (5/hour/IP)
 //	                                       + sends the verification email
 //	POST /api/v1/auth/login                issue a JWT access token (10/min/IP)
 //	POST /api/v1/auth/verify-email         consume the mailed single-use token
 //	POST /api/v1/auth/resend-verification  re-issue + re-send (3/hour/account)
+//	POST /api/v1/auth/logout               revoke the current bearer token
 //	GET  /api/v1/auth/me                   private profile behind Bearer
+//	PATCH /api/v1/users/me                 update display_name
+//	DELETE /api/v1/users/me                deactivate (is_active=false), 204
+//	GET  /api/v1/users/me/{reports,claims,votes}  paginated own activity
+//	GET  /api/v1/users/{user_id}           public profile, no Bearer
 //
-// Remaining auth endpoints (logout blocklist, /users/me family) are adjacent
-// tasks. Contracts: docs/api/openapi.yaml, §6.1-6.3, §6.20-6.21 requirements.
+// Contracts: docs/api/openapi.yaml, §6.1-6.3, §6.20-6.21 requirements.
 package main
 
 import (

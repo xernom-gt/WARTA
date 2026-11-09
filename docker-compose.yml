@@ -1,6 +1,6 @@
 # WARTA — Start the local stack
 #
-#   docker compose up -d db     # PostgreSQL 16 on localhost:5432
+#   docker compose up -d db     # PostgreSQL 16 on localhost:5433
 #
 # The API (Go) runs separately from ./api with `go run .`; see README.md §3.
 

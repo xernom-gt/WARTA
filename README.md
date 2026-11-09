@@ -24,7 +24,7 @@ Pastikan Anda telah memiliki aplikasi berikut:
 
 - [Git](https://git-scm.com/)
 - [Node.js](https://nodejs.org/)
-- [NPM](https://www.npmjs.com/) atau [PNPM](https://pnpm.io/)
+- [PNPM](https://pnpm.io/) (versi terkunci di root `package.json`)
 - [Go](https://go.dev/)
 - [PostgreSQL](https://www.postgresql.org/)
 
@@ -46,30 +46,19 @@ cd WARTA
 
 #### 2.1. Install Dependencies
 
-Sebelum menjalankan aplikasi, instal seluruh dependencies yang diperlukan menggunakan package manager pilihan Anda.
+Sebelum menjalankan aplikasi, instal seluruh dependencies menggunakan pnpm:
 
-**NPM**
-```bash
-npm install
-```
-
-**PNPM**
 ```bash
 pnpm install
 ```
 
 #### 2.2. Menjalankan Development Server
 
-Jalankan perintah berikut untuk memulai development server:
+Jalankan perintah berikut dari root repository untuk memulai development server:
 
-**NPM**
 ```bash
-npm run dev
-```
-
-**PNPM**
-```bash
-pnpm dev
+pnpm dev           # admin (Vite, port 5173)
+pnpm dev:landing   # landing (Vite, port 5174)
 ```
 
 Setelah development server berhasil dijalankan, buka URL lokal yang ditampilkan pada terminal untuk mengakses aplikasi.
@@ -77,11 +66,11 @@ Setelah development server berhasil dijalankan, buka URL lokal yang ditampilkan 
 ### 3. Menjalankan Back-end
 
 > [!NOTE]
-> Back-end saat ini baru memiliki fondasi autentikasi (register, login JWT, `/auth/me`). Endpoint katalog proyek, laporan, dan verifikasi masih menyusul — lihat `TASK.md` untuk daftar pekerjaan yang tersisa.
+> Back-end saat ini sudah mencakup autentikasi lengkap beserta profil warga: register, verifikasi email, login/logout JWT, perbarui profil (`PATCH /users/me`), nonaktifkan akun (`DELETE /users/me`), riwayat laporan/klaim/vote, dan profil publik warga. Endpoint katalog proyek, laporan, klaim lokasi, dan verifikasi masih menyusul — lihat `TASK.md` untuk daftar pekerjaan yang tersisa.
 
 #### Persyaratan tambahan
 
-- [Go 1.27+](https://go.dev/)
+- [Go 1.26+](https://go.dev/)
 - [Docker](https://www.docker.com/) untuk database PostgreSQL
 
 #### 3.1. Menjalankan Database
@@ -92,7 +81,7 @@ Dari folder root repository:
 docker compose up -d db
 ```
 
-Migrasi skema dijalankan otomatis oleh server saat start (`M1 Foundation: users`).
+Migrasi skema dijalankan otomatis oleh server saat start (saat ini sampai migrasi M6: users, auth_tokens, procurement, citizen reports, location claims, verification, evidences).
 
 #### 3.2. Menjalankan API Server
 
@@ -145,4 +134,4 @@ Warta saat ini masih berada dalam tahap awal pengembangan.
 
 **Front-end**: antarmuka `landing/` dan `admin/` sudah berjalan, termasuk tampilan queue verifikasi dan profil warga.
 
-**Back-end**: fondasi autentikasi sudah tersedia pada `api/` — register warga, login dengan JWT (HS256, 3600s), rate limiting, `X-Request-Id`, serta tabel `users` (migrasi M1). Endpoint katalog proyek, laporan, klaim lokasi, dan verifikasi menyusul sesuai urutan di `TASK.md`.
+**Back-end**: autentikasi lengkap beserta profil warga sudah tersedia pada `api/` — register warga, verifikasi email (konsol/SMTP), login/logout dengan JWT (HS256, 3600s), rate limiting, `X-Request-Id`, serta seluruh endpoint `/users/me` (perbarui profil, nonaktifkan akun, riwayat laporan/klaim/vote, profil publik). Skema database berjalan sampai migrasi M6. Endpoint katalog proyek, laporan, klaim lokasi, dan verifikasi menyusul sesuai urutan di `TASK.md`.
