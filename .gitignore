@@ -29,3 +29,8 @@ pnpm-debug.log*
 .idea
 .DS_Store
 Thumbs.db
+
+# Agent skills & local assistant tooling
+.agents/
+skills-lock.json
+
