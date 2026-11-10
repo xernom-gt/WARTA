@@ -195,10 +195,10 @@ func (h *Handler) CastVote(c fiber.Ctx) error {
 			return httpx.Error(c, fiber.StatusNotFound, "item_not_found", "verification item not found")
 		}
 		if errors.Is(err, ErrSelfVote) {
-			return httpx.Error(c, fiber.StatusForbidden, "forbidden", "authors cannot vote on their own content")
+			return httpx.Error(c, fiber.StatusForbidden, "self_vote_forbidden", "authors cannot vote on their own content")
 		}
 		if errors.Is(err, ErrDuplicateVote) {
-			return httpx.Error(c, fiber.StatusConflict, "duplicate_vote", "citizen has already voted on this item")
+			return httpx.Error(c, fiber.StatusConflict, "already_voted", "citizen has already voted on this item")
 		}
 		if errors.Is(err, ErrItemResolved) {
 			return httpx.Error(c, fiber.StatusConflict, "item_resolved", "verification item is already resolved")

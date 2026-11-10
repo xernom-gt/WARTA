@@ -210,3 +210,127 @@ func TestCastVote_SelfVoteAndDuplicateAndResolution(t *testing.T) {
 		t.Errorf("expected 409 Conflict for voting on resolved item, got %d", respC4.StatusCode)
 	}
 }
+
+// TestVoteEdgeCases_LockoutRules comprehensively tests the edge cases in Task 4:
+// - exact error codes: self_vote_forbidden (403), already_voted (409), item_resolved (409)
+// - unresolved-to-resolved transition upon disagree threshold reaching target_votes -> status "ditolak"
+// - immutable vote behavior: votes cannot be modified or replaced
+// - rejection of votes once resolved as ditolak
+func TestVoteEdgeCases_LockoutRules(t *testing.T) {
+	queueStore := NewMemoryQueueStore()
+	voteStore := NewMemoryStore()
+	voteStore.BindQueueStore(queueStore)
+	manager := token.NewManager("edge-case-secret-0123456789012345", time.Hour)
+	app := newFullTestApp(queueStore, voteStore, manager)
+
+	itemID := "00000000-0000-0000-0000-000000000088"
+	authorID := "author-88"
+	it := sampleQueueItem(itemID, time.Now().UTC(), true, ItemStatusMenunggu, ItemTypeLaporanKondisi)
+	it.AuthorUserID = authorID
+	queueStore.Seed(it)
+
+	// Case 1: Self-vote returns 403 with code "self_vote_forbidden"
+	authorTok, _ := manager.Sign(authorID)
+	body, _ := json.Marshal(CastVoteRequest{Choice: "setuju"})
+	reqSelf := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(body))
+	reqSelf.Header.Set("Authorization", "Bearer "+authorTok)
+	reqSelf.Header.Set("Content-Type", "application/json")
+	respSelf, err := app.Test(reqSelf)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respSelf.Body.Close()
+
+	if respSelf.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden, got %d", respSelf.StatusCode)
+	}
+	var errSelf struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(respSelf.Body).Decode(&errSelf)
+	if errSelf.Error.Code != "self_vote_forbidden" {
+		t.Errorf("expected error code 'self_vote_forbidden', got '%s'", errSelf.Error.Code)
+	}
+
+	// Case 2: Citizen votes tidak_setuju
+	voter1Tok, _ := manager.Sign("voter-1")
+	bodyDisagree, _ := json.Marshal(CastVoteRequest{Choice: "tidak_setuju"})
+	reqV1 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(bodyDisagree))
+	reqV1.Header.Set("Authorization", "Bearer "+voter1Tok)
+	reqV1.Header.Set("Content-Type", "application/json")
+	respV1, _ := app.Test(reqV1)
+	respV1.Body.Close()
+	if respV1.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for voter 1, got %d", respV1.StatusCode)
+	}
+
+	// Case 3: Duplicate vote returns 409 with code "already_voted"
+	reqDup := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(bodyDisagree))
+	reqDup.Header.Set("Authorization", "Bearer "+voter1Tok)
+	reqDup.Header.Set("Content-Type", "application/json")
+	respDup, _ := app.Test(reqDup)
+	defer respDup.Body.Close()
+
+	if respDup.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 Conflict, got %d", respDup.StatusCode)
+	}
+	var errDup struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(respDup.Body).Decode(&errDup)
+	if errDup.Error.Code != "already_voted" {
+		t.Errorf("expected error code 'already_voted', got '%s'", errDup.Error.Code)
+	}
+
+	// Case 4: Voter 2 & Voter 3 vote tidak_setuju -> reaching target_votes (3)
+	// Item transitions to "ditolak"
+	voter2Tok, _ := manager.Sign("voter-2")
+	voter3Tok, _ := manager.Sign("voter-3")
+
+	reqV2 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(bodyDisagree))
+	reqV2.Header.Set("Authorization", "Bearer "+voter2Tok)
+	reqV2.Header.Set("Content-Type", "application/json")
+	respV2, _ := app.Test(reqV2)
+	respV2.Body.Close()
+
+	reqV3 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(bodyDisagree))
+	reqV3.Header.Set("Authorization", "Bearer "+voter3Tok)
+	reqV3.Header.Set("Content-Type", "application/json")
+	respV3, _ := app.Test(reqV3)
+	respV3.Body.Close()
+
+	// Verify item is now resolved as "ditolak" with resolved_at set
+	resolvedItem, _ := queueStore.GetItemByID(nil, itemID)
+	if resolvedItem.Status != ItemStatusDitolak {
+		t.Errorf("expected item status 'ditolak', got '%s'", resolvedItem.Status)
+	}
+	if resolvedItem.ResolvedAt == nil {
+		t.Errorf("expected resolved_at to be populated")
+	}
+
+	// Case 5: Voting on the resolved item (status ditolak) returns 409 with code "item_resolved"
+	voter4Tok, _ := manager.Sign("voter-4")
+	reqV4 := httptest.NewRequest(http.MethodPost, "/api/v1/verification-items/"+itemID+"/votes", bytes.NewReader(bodyDisagree))
+	reqV4.Header.Set("Authorization", "Bearer "+voter4Tok)
+	reqV4.Header.Set("Content-Type", "application/json")
+	respV4, _ := app.Test(reqV4)
+	defer respV4.Body.Close()
+
+	if respV4.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 Conflict for resolved item, got %d", respV4.StatusCode)
+	}
+	var errResolved struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(respV4.Body).Decode(&errResolved)
+	if errResolved.Error.Code != "item_resolved" {
+		t.Errorf("expected error code 'item_resolved', got '%s'", errResolved.Error.Code)
+	}
+}
