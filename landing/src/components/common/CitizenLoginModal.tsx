@@ -1,14 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { KeyRound, Mail, X } from 'lucide-react';
+import { KeyRound, Loader2, Mail, X } from 'lucide-react';
+import axios from 'axios';
 import { useWarta } from '../../context/WartaContext';
 
 const DISPLAY_NAME_REGEX = /^[A-Za-z0-9_]{3,24}$/;
-
-/** Nama tampilan sementara dari bagian depan email, sampai API login tersambung. */
-function nameFromEmail(email: string): string {
-  const base = email.split('@')[0].replace(/[^A-Za-z0-9_]/g, '_').slice(0, 24);
-  return base.length >= 3 ? base : `warga_${base}`.slice(0, 24);
-}
 
 export default function CitizenLoginModal() {
   const { loginOpen, setLoginOpen, login, register } = useWarta();
@@ -17,6 +12,7 @@ export default function CitizenLoginModal() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loginOpen) return;
@@ -34,7 +30,7 @@ export default function CitizenLoginModal() {
     setError('');
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -49,19 +45,41 @@ export default function CitizenLoginModal() {
       setError('Kata sandi minimal 8 karakter.');
       return;
     }
-    if (mode === 'register') {
-      if (!DISPLAY_NAME_REGEX.test(cleanName)) {
-        setError('Nama tampilan harus 3 sampai 24 karakter: huruf, angka, atau garis bawah, tanpa spasi.');
-        return;
-      }
-      register(cleanName, cleanEmail);
+    if (mode === 'register' && !DISPLAY_NAME_REGEX.test(cleanName)) {
+      setError('Nama tampilan harus 3 sampai 24 karakter: huruf, angka, atau garis bawah, tanpa spasi.');
       return;
     }
-    login(nameFromEmail(cleanEmail), cleanEmail);
+
+    setSubmitting(true);
+    try {
+      if (mode === 'register') {
+        await register(cleanName, cleanEmail, password);
+      } else {
+        await login(cleanEmail, password);
+      }
+      setLoginOpen(false);
+    } catch (err: unknown) {
+      let msg = 'Terjadi kesalahan pada sistem. Silakan coba beberapa saat lagi.';
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data;
+        if (data?.error?.details && Array.isArray(data.error.details) && data.error.details.length > 0) {
+          msg = data.error.details.map((d: { message?: string; field?: string }) => d.message || d.field).join(', ');
+        } else if (data?.error?.message) {
+          msg = data.error.message;
+        } else if (err.message) {
+          msg = err.message;
+        }
+      } else if (err instanceof Error) {
+        msg = err.message;
+      }
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const field =
-    'w-full rounded-xl border border-slate-300 bg-white py-3 pr-4 pl-11 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20';
+    'w-full rounded-xl border border-slate-300 bg-white py-3 pr-4 pl-11 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:cursor-not-allowed';
 
   return (
     <div
@@ -95,9 +113,10 @@ export default function CitizenLoginModal() {
                 id="auth-display-name"
                 type="text"
                 value={displayName}
+                disabled={submitting}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="warga_kemayoran"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:cursor-not-allowed"
               />
               <p className="mt-1.5 text-sm text-slate-600">
                 Nama ini tampil di aduan dan suara Anda. Email tidak pernah ditampilkan.
@@ -115,6 +134,7 @@ export default function CitizenLoginModal() {
                 id="auth-email"
                 type="email"
                 value={email}
+                disabled={submitting}
                 onChange={(e) => setEmail(e.target.value)}
                 className={field}
               />
@@ -131,6 +151,7 @@ export default function CitizenLoginModal() {
                 id="auth-password"
                 type="password"
                 value={password}
+                disabled={submitting}
                 onChange={(e) => setPassword(e.target.value)}
                 className={field}
               />
@@ -146,9 +167,11 @@ export default function CitizenLoginModal() {
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand-dark"
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-base font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {mode === 'login' ? 'Masuk' : 'Buat akun'}
+            {submitting && <Loader2 className="size-5 animate-spin" />}
+            <span>{mode === 'login' ? 'Masuk' : 'Buat akun'}</span>
           </button>
         </form>
 
@@ -164,7 +187,7 @@ export default function CitizenLoginModal() {
         </p>
 
         <p className="mt-5 border-t border-slate-200 pt-5 text-sm leading-relaxed text-slate-600">
-          Server belum tersambung. Sesi dan aduan Anda hanya tersimpan di halaman ini dan hilang saat dimuat ulang.
+          Kata sandi Anda dienkripsi dengan aman (Bcrypt/Argon2id). Email Anda tidak pernah dipublikasikan.
         </p>
       </div>
     </div>
