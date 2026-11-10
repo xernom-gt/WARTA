@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import axios from 'axios';
 import {
   BadgeCheck,
   CheckCircle2,
@@ -7,6 +8,7 @@ import {
   ExternalLink,
   EyeOff,
   FileText,
+  Loader2,
   LogIn,
   LogOut,
   MailWarning,
@@ -18,8 +20,11 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
-import { REPORT_CATEGORY_LABELS } from '../../data/wartaData';
-import type { ClaimStatus, ReportStatus } from '../../types/warta';
+import { REPORT_CATEGORY_LABELS, WARTA_PROJECTS } from '../../data/wartaData';
+import type { CitizenReport, ClaimStatus, ReportStatus } from '../../types/warta';
+import { authService } from '../../services/auth';
+import { userService, reportToCitizenReport } from '../../services/users';
+import { reportsService } from '../../services/reports';
 import StatusBadge from '../common/StatusBadge';
 
 type Tab = 'laporan' | 'klaim' | 'suara';
@@ -46,11 +51,74 @@ export default function CitizenAccountView() {
   const [reportFilter, setReportFilter] = useState<'semua' | ReportStatus>('semua');
   const [claimFilter, setClaimFilter] = useState<'semua' | ClaimStatus>('semua');
 
+  // Laporan dari API
+  const [apiReports, setApiReports] = useState<CitizenReport[] | null>(null);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+
   // Edit display_name (PATCH /users/me)
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState(currentUser ?? '');
   const [nameError, setNameError] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  // Kirim ulang verifikasi email (POST /auth/resend-verification)
+  const [isResending, setIsResending] = useState(false);
   const [resendNotice, setResendNotice] = useState('');
+  const [resendError, setResendError] = useState('');
+
+  // Fetch riwayat laporan dari API (GET /users/me/reports)
+  useEffect(() => {
+    if (!currentUser) return;
+    const controller = new AbortController();
+
+    const fetchReports = async () => {
+      await Promise.resolve();
+      setLoadingReports(true);
+      try {
+        const res = await userService.getMyReports(
+          {
+            status: reportFilter !== 'semua' ? reportFilter : undefined,
+          },
+          controller.signal,
+        );
+        const projectMap = new Map(WARTA_PROJECTS.map((p) => [p.id, p]));
+        const mapped = res.data.map((r) =>
+          reportToCitizenReport(r, projectMap.get(r.project_id)),
+        );
+        setApiReports(mapped);
+      } catch {
+        if (!controller.signal.aborted) {
+          // Fallback graceful ke context
+          setApiReports(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingReports(false);
+        }
+      }
+    };
+
+    fetchReports();
+
+    return () => controller.abort();
+  }, [currentUser, reportFilter]);
+
+  const activeReports = useMemo(() => {
+    return apiReports !== null ? apiReports : myReports;
+  }, [apiReports, myReports]);
+
+  const filteredReports = useMemo(() => {
+    return activeReports.filter(
+      (r) => reportFilter === 'semua' || r.status === reportFilter,
+    );
+  }, [activeReports, reportFilter]);
+
+  const filteredClaims = useMemo(() => {
+    return myClaims.filter(
+      (c) => claimFilter === 'semua' || c.status === claimFilter,
+    );
+  }, [myClaims, claimFilter]);
 
   if (!currentUser || !userProfile) {
     return (
@@ -76,14 +144,7 @@ export default function CitizenAccountView() {
     );
   }
 
-  const filteredReports = myReports.filter(
-    (r) => reportFilter === 'semua' || r.status === reportFilter,
-  );
-  const filteredClaims = myClaims.filter(
-    (c) => claimFilter === 'semua' || c.status === claimFilter,
-  );
-
-  const saveDisplayName = (e: FormEvent) => {
+  const saveDisplayName = async (e: FormEvent) => {
     e.preventDefault();
     setNameError('');
     const trimmed = newName.trim();
@@ -91,8 +152,73 @@ export default function CitizenAccountView() {
       setNameError('Nama tampilan harus 3 sampai 24 karakter (huruf, angka, atau garis bawah).');
       return;
     }
-    updateDisplayName(trimmed);
-    setEditingName(false);
+    setIsSavingName(true);
+    try {
+      const updatedUser = await userService.updateMe({ display_name: trimmed });
+      updateDisplayName(updatedUser.display_name);
+      setEditingName(false);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 409) {
+          setNameError('Nama tampilan sudah digunakan oleh warga lain.');
+          return;
+        }
+        const msg = err.response?.data?.error?.message;
+        if (msg) {
+          setNameError(msg);
+          return;
+        }
+      }
+      // Fallback lokal jika ada gangguan jaringan
+      updateDisplayName(trimmed);
+      setEditingName(false);
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setIsResending(true);
+    setResendNotice('');
+    setResendError('');
+    try {
+      await authService.resendVerification();
+      setResendNotice(
+        'Tautan verifikasi baru telah dikirim ke email Anda (batas 3x/jam). Cek log server/inbox email.',
+      );
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 429) {
+          setResendError(
+            'Batas pengiriman tercapai: maksimal 3 kali per jam per akun. Silakan coba lagi nanti.',
+          );
+          return;
+        }
+        const msg = err.response?.data?.error?.message;
+        if (msg) {
+          setResendError(msg);
+          return;
+        }
+      }
+      setResendError('Gagal mengirim ulang email verifikasi. Periksa koneksi internet Anda.');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    setDeletingReportId(reportId);
+    try {
+      await reportsService.deleteReport(reportId);
+    } catch {
+      // Abaikan gangguan koneksi dan lanjutkan pembersihan state lokal
+    } finally {
+      if (apiReports) {
+        setApiReports((prev) => (prev ? prev.filter((r) => r.id !== reportId) : null));
+      }
+      deleteReport(reportId);
+      setDeletingReportId(null);
+    }
   };
 
   const initials = currentUser
@@ -118,17 +244,26 @@ export default function CitizenAccountView() {
               {resendNotice && (
                 <p className="mt-1.5 text-sm font-semibold text-ok-text">{resendNotice}</p>
               )}
+              {resendError && (
+                <p className="mt-1.5 text-sm font-semibold text-bad-text">{resendError}</p>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() =>
-                setResendNotice('Tautan verifikasi baru telah dikirim ke email Anda (batas 3x/jam).')
-              }
-              className="rounded-lg border border-amber-400 bg-white px-3.5 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+              disabled={isResending}
+              onClick={handleResendVerification}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400 bg-white px-3.5 py-2 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 disabled:opacity-60"
             >
-              Kirim Ulang Email
+              {isResending ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  Mengirim...
+                </>
+              ) : (
+                'Kirim Ulang Email'
+              )}
             </button>
             <button
               type="button"
@@ -154,23 +289,33 @@ export default function CitizenAccountView() {
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="text"
+                      disabled={isSavingName}
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
-                      className="rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-brand"
+                      className="rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-brand disabled:bg-slate-100"
                     />
                     <button
                       type="submit"
-                      className="rounded-lg bg-brand px-3.5 py-2 text-xs font-semibold text-white"
+                      disabled={isSavingName}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
                     >
-                      Simpan
+                      {isSavingName ? (
+                        <>
+                          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                          Menyimpan...
+                        </>
+                      ) : (
+                        'Simpan'
+                      )}
                     </button>
                     <button
                       type="button"
+                      disabled={isSavingName}
                       onClick={() => {
                         setEditingName(false);
                         setNameError('');
                       }}
-                      className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600"
+                      className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 disabled:opacity-60"
                     >
                       Batal
                     </button>
@@ -226,14 +371,14 @@ export default function CitizenAccountView() {
           </div>
         </div>
 
-        {/* Statistik Ringkas Tanpa Kotak Berbatas Bertumpuk */}
+        {/* Statistik Ringkas */}
         <dl className="mt-8 grid grid-cols-3 gap-6 border-t border-slate-100 pt-6">
           <div className="border-l-2 border-brand pl-4">
             <dt className="text-sm text-slate-600">Laporan Kondisi</dt>
             <dd className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
-              {myReports.length}{' '}
+              {activeReports.length}{' '}
               <span className="text-sm font-medium text-slate-600">
-                ({myReports.filter((r) => r.status === 'draft').length} draf)
+                ({activeReports.filter((r) => r.status === 'draft').length} draf)
               </span>
             </dd>
           </div>
@@ -269,7 +414,7 @@ export default function CitizenAccountView() {
             }`}
           >
             <FileText className="size-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">Laporan Saya ({myReports.length})</span>
+            <span className="truncate">Laporan Saya ({activeReports.length})</span>
           </button>
           <button
             type="button"
@@ -332,7 +477,13 @@ export default function CitizenAccountView() {
       {/* Isi Tab 1: Laporan Saya */}
       {tab === 'laporan' && (
         <ul className="space-y-4">
-          {filteredReports.length === 0 ? (
+          {loadingReports ? (
+            <li className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center">
+              <Loader2 className="mb-3 size-8 animate-spin text-brand" aria-hidden="true" />
+              <p className="text-base font-bold text-slate-900">Memuat laporan Anda...</p>
+              <p className="mt-1 text-sm text-slate-600">Mengambil riwayat laporan dari server.</p>
+            </li>
+          ) : filteredReports.length === 0 ? (
             <EmptyBox text="Belum ada laporan kondisi pada filter ini." />
           ) : (
             filteredReports.map((r) => (
@@ -346,7 +497,7 @@ export default function CitizenAccountView() {
                       <span className="rounded-md bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
                         {REPORT_CATEGORY_LABELS[r.category]}
                       </span>
-                      <span className="font-mono text-slate-600">#{r.spseCode}</span>
+                      {r.spseCode && <span className="font-mono text-slate-600">#{r.spseCode}</span>}
                       <span className="text-slate-500">· {r.createdAt}</span>
                     </div>
                     <h2 className="mt-1.5 text-lg font-bold text-slate-900">{r.projectTitle}</h2>
@@ -382,10 +533,16 @@ export default function CitizenAccountView() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => deleteReport(r.id)}
-                          className="inline-flex items-center gap-1 rounded-xl border border-bad-border/40 bg-bad-bg px-3.5 py-2 text-xs font-semibold text-bad-text hover:brightness-95"
+                          disabled={deletingReportId === r.id}
+                          onClick={() => handleDeleteReport(r.id)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-bad-border/40 bg-bad-bg px-3.5 py-2 text-xs font-semibold text-bad-text hover:brightness-95 disabled:opacity-60"
                         >
-                          <Trash2 className="size-3.5" aria-hidden="true" /> Hapus Draf
+                          {deletingReportId === r.id ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Trash2 className="size-3.5" aria-hidden="true" />
+                          )}
+                          Hapus Draf
                         </button>
                       </>
                     )}
@@ -393,10 +550,16 @@ export default function CitizenAccountView() {
                     {r.status === 'menunggu' && (
                       <button
                         type="button"
-                        onClick={() => deleteReport(r.id)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        disabled={deletingReportId === r.id}
+                        onClick={() => handleDeleteReport(r.id)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                       >
-                        <Trash2 className="size-3.5 text-bad-text" aria-hidden="true" /> Tarik Kembali Laporan
+                        {deletingReportId === r.id ? (
+                          <Loader2 className="size-3.5 animate-spin text-bad-text" aria-hidden="true" />
+                        ) : (
+                          <Trash2 className="size-3.5 text-bad-text" aria-hidden="true" />
+                        )}
+                        Tarik Kembali Laporan
                       </button>
                     )}
                   </div>

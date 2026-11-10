@@ -42,4 +42,12 @@ export const authService = {
   async logout(): Promise<void> {
     await api.post('/auth/logout');
   },
+
+  /**
+   * Mengirim ulang email verifikasi akun (batas 3x/jam per akun).
+   * Mengembalikan status 204 No Content jika sukses.
+   */
+  async resendVerification(): Promise<void> {
+    await api.post('/auth/resend-verification');
+  },
 };
