@@ -111,9 +111,9 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 🏗 Infrastructure & Cross-Cutting
 
 ### Database
-- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — done so far: M1 (users), 000002 (auth_tokens landed early), 000003 M2 (projects/years/tenders/locations/risk flags), 000004 M3 (reports/report_media), 000005 M4 (location_claims/claim_media), 000006 M5 (verification_items/votes), 000007 M6 (evidences/evidence_media). Remaining: M9 hardening (`reports.deleted_at`, `search_vector`, `pg_trgm`, GIN/partial indexes).
-- [ ] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
-- [ ] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
+- [x] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — done: M1 (users), 000002 (auth_tokens), 000003 M2 (procurement), 000004 M3 (reports), 000005 M4 (claims), 000006 M5 (verification), 000007 M6 (evidence), 000008 (soft delete), 000009 M7 (views/triggers/indexes), 000010 M9 (search hardening).
+- [x] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
+- [x] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
 - [ ] Seed data for local dev (8 projects, 3 citizens, 3 verification items, vote history)
 
 ### API Conventions
