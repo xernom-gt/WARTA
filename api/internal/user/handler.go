@@ -113,13 +113,21 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			"The request body is not valid JSON.")
 	}
 
+	var details []httpx.FieldError
 	if body.DisplayName == "" {
-		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
-			"display_name is required.")
+		details = append(details, httpx.FieldError{
+			Field:   "display_name",
+			Message: "display_name is required.",
+		})
+	} else if !displayNameRe.MatchString(body.DisplayName) {
+		details = append(details, httpx.FieldError{
+			Field:   "display_name",
+			Message: "display_name must be 3-24 characters: alphanumeric and underscore only.",
+		})
 	}
-	if !displayNameRe.MatchString(body.DisplayName) {
+	if len(details) > 0 {
 		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed",
-			"display_name must be 3-24 characters: alphanumeric and underscore only.")
+			"One or more fields are invalid.", details...)
 	}
 
 	id, _ := c.Locals(middleware.LocalUserID).(string)

@@ -1,16 +1,29 @@
-import { useEffect } from 'react';
-import { Building2, Camera, Database, MapPinned, Users, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Building2, Camera, Database, Loader2, MapPinned, Users, X } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { getProject } from '../../data/wartaData';
+import type { FailedTender, RiskFlag, SubLocation } from '../../types/warta';
 import StatusBadge from '../common/StatusBadge';
 import ContractRiskBadges from './ContractRiskBadges';
 import SubLocationTabs from './SubLocationTabs';
 import TenderHistoryAccordion from './TenderHistoryAccordion';
+import {
+  projectService,
+  type ProjectDetailDTO,
+  type TenderDTO,
+  type LocationDTO,
+  type RiskFlagDTO,
+} from '../../services/project';
 
 const NO_CONTRACT = 'Nilai kontrak belum tersedia di sumber publik.';
 
 export default function ProjectDetailModal() {
   const { activeScreen, selectedProjectId, navigate, compactRupiah, queue } = useWarta();
+  const [liveDetail, setLiveDetail] = useState<ProjectDetailDTO | null>(null);
+  const [liveTenders, setLiveTenders] = useState<TenderDTO[]>([]);
+  const [liveLocations, setLiveLocations] = useState<LocationDTO[]>([]);
+  const [liveFlags, setLiveFlags] = useState<RiskFlagDTO[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (activeScreen !== 'detail') return;
@@ -19,10 +32,103 @@ export default function ProjectDetailModal() {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeScreen, navigate]);
 
+  useEffect(() => {
+    if (activeScreen !== 'detail' || !selectedProjectId) {
+      setLiveDetail(null);
+      return;
+    }
+    setLoading(true);
+
+    Promise.allSettled([
+      projectService.getProject(selectedProjectId),
+      projectService.getProjectTenders(selectedProjectId),
+      projectService.getProjectLocations(selectedProjectId),
+      projectService.getProjectRiskFlags(selectedProjectId),
+    ]).then(([detailRes, tendersRes, locsRes, flagsRes]) => {
+      if (detailRes.status === 'fulfilled') setLiveDetail(detailRes.value);
+      if (tendersRes.status === 'fulfilled') setLiveTenders(tendersRes.value);
+      if (locsRes.status === 'fulfilled') setLiveLocations(locsRes.value?.locations || []);
+      if (flagsRes.status === 'fulfilled') setLiveFlags(flagsRes.value);
+      setLoading(false);
+    });
+  }, [activeScreen, selectedProjectId]);
+
   if (activeScreen !== 'detail' || !selectedProjectId) return null;
-  const p = getProject(selectedProjectId);
+
+  let fallbackProject;
+  try {
+    fallbackProject = getProject(selectedProjectId);
+  } catch {
+    fallbackProject = null;
+  }
+
+  const p = liveDetail
+    ? {
+        id: liveDetail.id,
+        title: liveDetail.title,
+        spseCode: liveDetail.spse_code,
+        status: liveDetail.status,
+        category: liveDetail.category,
+        satker: liveDetail.satker,
+        paguCompact: `Rp ${liveDetail.pagu_amount}`,
+        paguFull: `Rp ${liveDetail.pagu_amount}`,
+        hpsCompact: `Rp ${liveDetail.hps_amount}`,
+        hpsFull: `Rp ${liveDetail.hps_amount}`,
+        kontrakCompact: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
+        kontrakFull: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
+        kontrakAvailable: liveDetail.contract_available,
+        years: liveDetail.years.map(String),
+        multiYearsMicrocopy: liveDetail.derived?.multi_years_microcopy,
+        locationDesc: liveDetail.city,
+        precisionBadge: liveDetail.derived?.precision_badge || liveDetail.precision_level,
+        locationSource: liveDetail.location_source,
+        precisionMicrocopy: liveDetail.derived?.precision_microcopy,
+        precisionResolutionNote: liveDetail.precision_note,
+        canonicalMicrocopy: liveDetail.derived?.canonical_microcopy,
+        subLocationsMicrocopy: liveDetail.derived?.sub_locations_microcopy,
+        isRetender: liveDetail.is_retender,
+        retenderMicrocopy: liveDetail.derived?.retender_microcopy,
+        sourceNote: liveDetail.source_note,
+        isRoughArea: liveDetail.derived?.is_rough_area ?? false,
+        isCanonicalClaimed: liveDetail.is_canonical_claimed,
+      }
+    : fallbackProject;
+
+  if (!p) return null;
+
   const reports = queue.filter((q) => q.projectId === p.id);
   const money = (c: string, f: string) => (compactRupiah ? c : f);
+
+  // Map sublocations
+  const subLocations: SubLocation[] = liveLocations.length > 0
+    ? liveLocations.map((l) => ({
+        id: l.id,
+        name: l.name || l.address,
+        address: l.address,
+        city: l.city,
+        verified: l.is_verified,
+      }))
+    : (fallbackProject?.subLocations || []);
+
+  // Map tenders
+  const failedTenders: FailedTender[] = liveTenders.length > 0
+    ? liveTenders.map((t) => ({
+        code: t.spse_code,
+        status: 'Tender Gagal' as const,
+        note: t.note ?? undefined,
+      }))
+    : (fallbackProject?.failedTenders || []);
+
+  // Map risk flags
+  const riskFlags: RiskFlag[] = liveFlags.length > 0
+    ? liveFlags.map((f) => ({
+        id: f.code,
+        label: f.label,
+        level: f.level,
+        description: f.description,
+      }))
+    : (fallbackProject?.riskFlags || []);
+
 
   return (
     <div
@@ -41,9 +147,11 @@ export default function ProjectDetailModal() {
                 {p.category}
               </span>
             </div>
-            <h2 id="detail-title" className="text-xl font-extrabold text-slate-900 sm:text-2xl">
-              {p.title}
+            <h2 id="detail-title" className="text-xl font-extrabold text-slate-900 sm:text-2xl flex items-center gap-2">
+              <span>{p.title}</span>
+              {loading && <Loader2 className="size-5 animate-spin text-brand shrink-0" />}
             </h2>
+
             <p className="mt-0.5 font-mono text-sm text-slate-600">Kode tender #{p.spseCode}</p>
           </div>
           <button
@@ -125,22 +233,27 @@ export default function ProjectDetailModal() {
                 <p className="rounded-lg bg-ok-bg p-3 font-medium text-ok-text">{p.canonicalMicrocopy}</p>
               )}
             </div>
-            {p.subLocations && (
-              <div className="pt-2">
-                <SubLocationTabs locations={p.subLocations} microcopy={p.subLocationsMicrocopy} />
-              </div>
+              {subLocations && subLocations.length > 0 && (
+                <div className="pt-2">
+                  <SubLocationTabs locations={subLocations} microcopy={p.subLocationsMicrocopy} />
+                </div>
+              )}
+            </section>
+
+            {/* Risiko */}
+            <section className="space-y-3">
+              <h3 className="text-base font-bold text-slate-900">Indikator Risiko Kontrak</h3>
+              <ContractRiskBadges flags={riskFlags} />
+            </section>
+
+            {failedTenders && failedTenders.length > 0 && (
+              <TenderHistoryAccordion
+                title={p.retenderMicrocopy || 'Riwayat Tender Lelang Proyek'}
+                tenders={failedTenders}
+                currentCode={p.spseCode}
+              />
             )}
-          </section>
 
-          {/* Risiko */}
-          <section className="space-y-3">
-            <h3 className="text-base font-bold text-slate-900">Indikator Risiko Kontrak</h3>
-            <ContractRiskBadges flags={p.riskFlags} />
-          </section>
-
-          {p.isRetender && p.retenderMicrocopy && (
-            <TenderHistoryAccordion title={p.retenderMicrocopy} tenders={p.failedTenders} currentCode={p.spseCode} />
-          )}
 
           {/* Laporan */}
           <section className="space-y-3">

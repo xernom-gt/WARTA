@@ -35,14 +35,14 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 📦 Projects
 
 ### Core Project Endpoints
-- [ ] `GET /projects` — List with filters: `q`, `category`, `city`, `status`, `year`, `precision_level`, `is_outside_dki`, `is_retender`, `sort`, `page`, `limit`; returns project summaries with derived fields; `ETag` support
-- [ ] `GET /projects/{project_id}` — Full detail with embedded: `tenders`, `sub_locations`, `risk_flags`, `location` (primary), derived fields
-- [ ] `GET /projects/map` — Lightweight pins: `bbox` required, optional `status`, `category`; returns `id`, `title`, `lat`, `lng`, `precision_level`, `status`, `category`
+- [x] `GET /projects` — List with filters: `q`, `category`, `city`, `status`, `year`, `precision_level`, `is_outside_dki`, `is_retender`, `sort`, `page`, `limit`; returns project summaries with derived fields; `ETag` support
+- [x] `GET /projects/{project_id}` — Full detail with embedded: `tenders`, `sub_locations`, `risk_flags`, `location` (primary), derived fields
+- [x] `GET /projects/map` — Lightweight pins: `bbox` required, optional `status`, `category`; returns `id`, `title`, `lat`, `lng`, `precision_level`, `status`, `category`
 
 ### Project Sub-resources (Read-only)
-- [ ] `GET /projects/{project_id}/tenders` — History ordered by `created_at` asc
-- [ ] `GET /projects/{project_id}/locations` — Primary + sub-locations with `is_primary`, `is_verified`
-- [ ] `GET /projects/{project_id}/risk-flags` — Active flags (`code`, `label`, `level`, `description`)
+- [x] `GET /projects/{project_id}/tenders` — History ordered by `created_at` asc
+- [x] `GET /projects/{project_id}/locations` — Primary + sub-locations with `is_primary`, `is_verified`
+- [x] `GET /projects/{project_id}/risk-flags` — Active flags (`code`, `label`, `level`, `description`)
 - [ ] `GET /projects/{project_id}/reports` — Submitted reports only (filter: `status`, `category`, `author`, pagination)
 - [ ] `GET /projects/{project_id}/location-claims` — Claims (filter: `status`, `author`, pagination)
 - [ ] `GET /projects/{project_id}/verification-items` — Queue items for project (filter: `status`, `item_type`, pagination)
@@ -88,11 +88,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 
 ## 📍 Location Claims
 
-- [ ] `POST /projects/{project_id}/location-claims` — Create claim (`status: menunggu`); validate `address_line` required unless precision `kecamatan`/`desa/kelurahan`; compute `distance_from_project`; enqueue as `klaim_lokasi`; 409 if project already has accepted claim
-- [ ] `GET /location-claims/{claim_id}` — Full claim detail
-- [ ] `GET /location-claims/{claim_id}/media` — Return claim photo (max 1)
-- [ ] `POST /location-claims/{claim_id}/media` — Author upload (1 photo, 5MB, JPEG/PNG/WebP)
-- [ ] `DELETE /location-claims/{claim_id}/media/{media_id}` — Author delete while `menunggu`
+- [x] `POST /projects/{project_id}/location-claims` — Create claim (`status: menunggu`); validate `address_line` required unless precision `kecamatan`/`desa/kelurahan`; compute `distance_from_project`; enqueue as `klaim_lokasi`; 409 if project already has accepted claim
+- [x] `GET /location-claims/{claim_id}` — Full claim detail
+- [x] `GET /location-claims/{claim_id}/media` — Return claim photo (max 1)
+- [x] `POST /location-claims/{claim_id}/media` — Author upload (1 photo, 5MB, JPEG/PNG/WebP)
+- [x] `DELETE /location-claims/{claim_id}/media/{media_id}` — Author delete while `menunggu`
 
 ---
 
@@ -111,9 +111,9 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 🏗 Infrastructure & Cross-Cutting
 
 ### Database
-- [ ] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — done so far: M1 (users), 000002 (auth_tokens landed early), 000003 M2 (projects/years/tenders/locations/risk flags), 000004 M3 (reports/report_media), 000005 M4 (location_claims/claim_media), 000006 M5 (verification_items/votes), 000007 M6 (evidences/evidence_media). Remaining: M9 hardening (`reports.deleted_at`, `search_vector`, `pg_trgm`, GIN/partial indexes).
-- [ ] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
-- [ ] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
+- [x] Migrations M1-M9 (see `docs/database/database-design.md` §9.2) — done: M1 (users), 000002 (auth_tokens), 000003 M2 (procurement), 000004 M3 (reports), 000005 M4 (claims), 000006 M5 (verification), 000007 M6 (evidence), 000008 (soft delete), 000009 M7 (views/triggers/indexes), 000010 M9 (search hardening).
+- [x] Indexes per §7 (partial indexes for `deleted_at IS NULL`, `status = 'menunggu'`)
+- [x] Triggers: `updated_at`, `search_vector` generation, vote counters, project status rollup
 - [ ] Seed data for local dev (8 projects, 3 citizens, 3 verification items, vote history)
 
 ### API Conventions
@@ -128,18 +128,18 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [ ] `Retry-After` on 429/503
 
 ### Validation
-- [ ] Request validation before any write
-- [ ] Collect all field errors, return together (`details[]`)
-- [ ] UUID validation: 400 malformed, 404 not found
-- [ ] Pagination: default limit 20, max 100 (clamp, not reject)
-- [ ] Sort: `sort=field` / `sort=-field`
+- [x] Request validation before any write
+- [x] Collect all field errors, return together (`details[]`)
+- [x] UUID validation: 400 malformed, 404 not found
+- [x] Pagination: default limit 20, max 100 (clamp, not reject)
+- [x] Sort: `sort=field` / `sort=-field`
 
 ### File Upload
-- [ ] Object storage integration (S3/R2/MinIO)
-- [ ] Presigned URL or direct upload handler
-- [ ] EXIF extraction (lat, lng, taken_at, geotag validity)
-- [ ] MIME validation (JPEG, PNG, WebP only)
-- [ ] Size limit 5MB
+- [x] Object storage integration (S3/R2/MinIO)
+- [x] Presigned URL or direct upload handler
+- [x] EXIF extraction (lat, lng, taken_at, geotag validity)
+- [x] MIME validation (JPEG, PNG, WebP only)
+- [x] Size limit 5MB
 
 ### Email
 - [x] Verification email template (token link, 24hr expiry)
@@ -148,9 +148,9 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [ ] SMTP transport verified against a live/staging server (console transport covers local dev)
 
 ### OpenAPI Sync
-- [ ] Keep `docs/api/openapi.yaml` in sync with implementation
-- [ ] All `components/schemas` defined and referenced
-- [ ] Generate TypeScript types for frontends
+- [x] Keep `docs/api/openapi.yaml` in sync with implementation
+- [x] All `components/schemas` defined and referenced
+- [x] Generate TypeScript types for frontends
 
 ---
 

@@ -37,6 +37,7 @@ import (
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
+	"warta.com/api/internal/project"
 	"warta.com/api/internal/report"
 	"warta.com/api/internal/token"
 	"warta.com/api/internal/user"
@@ -94,6 +95,21 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		MailFrom:   cfg.MailFrom,
 		VerifyBase: cfg.MailVerifyBaseURL,
 	})
+	var mediaStorage report.MediaStorage
+	if cfg.StorageDriver == "s3" && cfg.S3Bucket != "" {
+		mediaStorage = report.NewS3MediaStorage(report.S3Config{
+			Endpoint:        cfg.S3Endpoint,
+			Region:          cfg.S3Region,
+			Bucket:          cfg.S3Bucket,
+			AccessKeyID:     cfg.S3AccessKeyID,
+			SecretAccessKey: cfg.S3SecretKey,
+			PublicURL:       cfg.S3PublicURL,
+			ForcePathStyle:  cfg.S3ForcePathStyle,
+		})
+	} else {
+		mediaStorage = report.NewMemoryMediaStorage(cfg.S3PublicURL)
+	}
+
 	reportStore := report.NewPGStore(pool)
 	userHandlers := user.NewHandler(user.Deps{
 		Store:       store,
@@ -102,7 +118,8 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		VoteStore:   verification.NewPGVoteStore(pool),
 	})
 	reportHandlers := report.NewHandler(report.Deps{
-		Store: reportStore,
+		Store:   reportStore,
+		Storage: mediaStorage,
 		CallerLookup: func(ctx context.Context, userID string) (*report.Caller, error) {
 			u, err := store.FindByID(ctx, userID)
 			if errors.Is(err, user.ErrNotFound) {
@@ -121,7 +138,8 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	})
 	evidenceStore := evidence.NewPGStore(pool)
 	evidenceHandlers := evidence.NewHandler(evidence.Deps{
-		Store: evidenceStore,
+		Store:   evidenceStore,
+		Storage: mediaStorage,
 		CallerLookup: func(ctx context.Context, userID string) (*evidence.Caller, error) {
 			u, err := store.FindByID(ctx, userID)
 			if errors.Is(err, user.ErrNotFound) {
@@ -148,6 +166,10 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 			return true, nil
 		},
 	})
+	claimHandlers := claim.NewHandler(claim.NewPGStore(pool), mediaStorage)
+	projectHandlers := project.NewHandler(project.NewPGStore(pool))
+	queueStore := verification.NewPGQueueStore(pool)
+	verificationHandlers := verification.NewHandler(queueStore, verification.NewPGVoteStore(pool))
 	loginLimit := middleware.NewRateLimiter(cfg.LoginRateLimit, time.Minute)
 	registerLimit := middleware.NewRateLimiter(cfg.RegisterRateLimit, time.Hour)
 
@@ -160,7 +182,7 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	app.Use(middleware.RequestID())
 
 	app.Get("/api/v1/health", func(c fiber.Ctx) error {
-		return health(c, pool, cfg)
+		return health(c, pool, mediaStorage, cfg)
 	})
 
 	v1 := app.Group("/api/v1")
@@ -203,6 +225,30 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Post("/evidences/:evidence_id/media", middleware.Bearer(manager, bl), evidenceHandlers.UploadMedia)
 	v1.Delete("/evidences/:evidence_id/media/:media_id", middleware.Bearer(manager, bl), evidenceHandlers.DeleteMedia)
 
+	// §6.6-§6.12: public project catalog endpoints.
+	v1.Get("/projects", projectHandlers.ListProjects)
+	v1.Get("/projects/map", projectHandlers.ListProjectMapPins)
+	v1.Get("/projects/:id", projectHandlers.GetProject)
+	v1.Get("/projects/:id/tenders", projectHandlers.ListProjectTenders)
+	v1.Get("/projects/:id/locations", projectHandlers.ListProjectLocations)
+	v1.Get("/projects/:id/risk-flags", projectHandlers.ListProjectRiskFlags)
+	v1.Get("/projects/:id/reports", projectHandlers.ListProjectReports)
+	v1.Get("/projects/:id/location-claims", projectHandlers.ListProjectClaims)
+	v1.Get("/projects/:id/verification-items", projectHandlers.ListProjectItems)
+
+	// §5.4 / §6.16: location claims endpoints.
+	v1.Post("/projects/:project_id/location-claims", middleware.Bearer(manager, bl), claimHandlers.CreateClaim)
+	v1.Get("/location-claims/:claim_id", claimHandlers.GetClaim)
+	v1.Get("/location-claims/:claim_id/media", claimHandlers.GetClaimMedia)
+	v1.Post("/location-claims/:claim_id/media", middleware.Bearer(manager, bl), claimHandlers.UploadClaimMedia)
+	v1.Delete("/location-claims/:claim_id/media/:media_id", middleware.Bearer(manager, bl), claimHandlers.DeleteClaimMedia)
+
+	// §5.5: unified verification queue and votes endpoints.
+	v1.Get("/verification-items", verificationHandlers.ListQueue)
+	v1.Get("/verification-items/:item_id", verificationHandlers.GetItem)
+	v1.Get("/verification-items/:item_id/votes", verificationHandlers.ListVotes)
+	v1.Post("/verification-items/:item_id/votes", middleware.Bearer(manager, bl), verificationHandlers.CastVote)
+
 	return api{app: app}
 }
 
@@ -243,7 +289,7 @@ func devSeedUsers() []user.User {
 // 200 "ok" when the database responds, 503 "degraded" when it does not.
 // storage is always "down" for now because object storage is a later
 // milestone (§11); the contract's enum accepts it.
-func health(c fiber.Ctx, pool *pgxpool.Pool, cfg config.Config) error {
+func health(c fiber.Ctx, pool *pgxpool.Pool, storage report.MediaStorage, cfg config.Config) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
 
@@ -251,16 +297,22 @@ func health(c fiber.Ctx, pool *pgxpool.Pool, cfg config.Config) error {
 	if err := pool.Ping(ctx); err != nil {
 		dbStatus = "down"
 	}
+	storageStatus := "ok"
+	if storage != nil {
+		if err := storage.Ping(ctx); err != nil {
+			storageStatus = "down"
+		}
+	}
 	status := "ok"
 	code := fiber.StatusOK
-	if dbStatus != "ok" {
+	if dbStatus != "ok" || storageStatus != "ok" {
 		status = "degraded"
 		code = fiber.StatusServiceUnavailable
 	}
 	payload := fiber.Map{
 		"status":         status,
 		"database":       dbStatus,
-		"storage":        "down",
+		"storage":        storageStatus,
 		"version":        cfg.Version,
 		"uptime_seconds": int64(time.Since(start).Seconds()),
 	}

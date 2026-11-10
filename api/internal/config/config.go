@@ -4,8 +4,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config carries every runtime setting the API needs. Values are read once on
@@ -48,6 +51,16 @@ type Config struct {
 	// mailed link is BASE?token=<raw> (§6.20).
 	MailVerifyBaseURL string
 
+	// Object storage (S3/R2/MinIO) (§11.1).
+	StorageDriver    string
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	S3AccessKeyID    string
+	S3SecretKey      string
+	S3PublicURL      string
+	S3ForcePathStyle bool
+
 	// Seed toggles dev seed data when the users table is empty.
 	Seed bool
 
@@ -69,8 +82,13 @@ const (
 
 var errEnv = "config: %s must be a positive integer, got %q"
 
-// Load reads the environment and returns a validated Config.
+// Load reads the environment and returns a validated Config. The nearest
+// .env file is applied first, so plain `go run .` works without exports.
 func Load() (Config, error) {
+	if err := loadDotEnv(); err != nil {
+		return Config{}, err
+	}
+
 	port, ok := os.LookupEnv("API_PORT")
 	if !ok || port == "" {
 		port = defaultPort
@@ -107,6 +125,14 @@ func Load() (Config, error) {
 		SMTPPort:          int(smtpPort),
 		MailFrom:          value("MAIL_FROM", defaultMailFrom),
 		MailVerifyBaseURL: value("MAIL_VERIFY_BASE_URL", defaultVerifyBaseURL),
+		StorageDriver:    value("STORAGE_DRIVER", "memory"),
+		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
+		S3Region:         value("S3_REGION", "us-east-1"),
+		S3Bucket:         os.Getenv("S3_BUCKET"),
+		S3AccessKeyID:    os.Getenv("S3_ACCESS_KEY_ID"),
+		S3SecretKey:      os.Getenv("S3_SECRET_ACCESS_KEY"),
+		S3PublicURL:      os.Getenv("S3_PUBLIC_URL"),
+		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "1" || os.Getenv("S3_FORCE_PATH_STYLE") == "true",
 		Seed:              os.Getenv("WARTA_SEED") == "1",
 		Version:           "0.1.0",
 	}
@@ -124,6 +150,32 @@ func Load() (Config, error) {
 	cfg.JWTSecret = []byte(secret)
 
 	return cfg, nil
+}
+
+// loadDotEnv applies the nearest .env file, searching upward from the working
+// directory so `cd api && go run .` picks up the repo-root .env. Values are
+// set by name only when missing: the real environment always wins over .env
+// (§13.5 expose override semantics). A missing .env is fine — production
+// supplies values directly — but a malformed one fails fast.
+func loadDotEnv() error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	for {
+		path := filepath.Join(dir, ".env")
+		if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
+			if err := godotenv.Load(path); err != nil {
+				return fmt.Errorf("loading %s: %w", path, err)
+			}
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
 }
 
 func value(key, fallback string) string {

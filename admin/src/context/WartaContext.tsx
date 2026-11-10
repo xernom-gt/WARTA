@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   ActiveScreen,
   CitizenClaim,
@@ -17,9 +17,11 @@ import {
   INITIAL_VOTE_HISTORY,
   SAMPLE_DATA,
 } from '../data/wartaData';
+import { authService, type UserPrivate } from '../services/auth';
 
 interface WartaState {
   currentUser: string | null;
+  authUser: UserPrivate | null;
   role: UserRole;
   mapCondition: MapCondition;
   activeScreen: ActiveScreen;
@@ -38,7 +40,7 @@ interface WartaContextValue extends WartaState {
   navigate: (s: ActiveScreen, projectId?: string) => void;
   selectProject: (id: string | null) => void;
   toggleRupiah: () => void;
-  login: (displayName: string) => void;
+  login: (displayName: string, userObj?: UserPrivate) => void;
   logout: () => void;
   setLoginOpen: (o: boolean) => void;
   vote: (itemId: string, choice: VoteChoice) => void;
@@ -46,10 +48,13 @@ interface WartaContextValue extends WartaState {
   addReport: (r: CitizenReport, item?: VerificationItem) => void;
   addClaim: (c: CitizenClaim, item: VerificationItem) => void;
   reset: () => void;
+  setQueue: (items: VerificationItem[]) => void;
+  recordVote: (record: VoteRecord, updatedItem?: VerificationItem) => void;
 }
 
 const initialState = (): WartaState => ({
   currentUser: SAMPLE_DATA ? CURRENT_USER : null,
+  authUser: null,
   role: SAMPLE_DATA ? 'other' : 'guest',
   mapCondition: 'normal',
   activeScreen: 'verifikasi',
@@ -62,6 +67,7 @@ const initialState = (): WartaState => ({
   loginOpen: false,
 });
 
+
 const WartaContext = createContext<WartaContextValue | null>(null);
 
 export const OWNER_WARNING =
@@ -72,10 +78,28 @@ export function WartaProvider({ children }: { children: ReactNode }) {
 
   const patch = useCallback((p: Partial<WartaState>) => setState((s) => ({ ...s, ...p })), []);
 
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    authService
+      .getMe()
+      .then((user) => {
+        setState((s) => ({
+          ...s,
+          currentUser: user.display_name,
+          authUser: user,
+          role: 'other',
+        }));
+      })
+      .catch(() => {
+        localStorage.removeItem('token');
+      });
+  }, []);
+
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
       if (state.role === 'guest' || !state.currentUser)
-        return { allowed: false, reason: 'Masuk dengan Nama Tampilan Publik untuk memberi suara.' };
+        return { allowed: false, reason: 'Masuk dengan akun warga untuk memberi suara.' };
       if (state.role === 'owner' || state.currentUser === item.authorDisplayName)
         return { allowed: false, reason: OWNER_WARNING };
       if (item.voters.includes(state.currentUser))
@@ -129,6 +153,18 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setQueue = useCallback((items: VerificationItem[]) => {
+    setState((s) => ({ ...s, queue: items }));
+  }, []);
+
+  const recordVote = useCallback((record: VoteRecord, updatedItem?: VerificationItem) => {
+    setState((s) => ({
+      ...s,
+      queue: updatedItem ? s.queue.map((it) => (it.id === updatedItem.id ? updatedItem : it)) : s.queue,
+      voteHistory: [record, ...s.voteHistory],
+    }));
+  }, []);
+
   const value = useMemo<WartaContextValue>(
     () => ({
       ...state,
@@ -138,8 +174,17 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         patch({ activeScreen, ...(projectId ? { selectedProjectId: projectId } : {}) }),
       selectProject: (selectedProjectId) => patch({ selectedProjectId }),
       toggleRupiah: () => setState((s) => ({ ...s, compactRupiah: !s.compactRupiah })),
-      login: (currentUser) => patch({ currentUser, role: 'other', loginOpen: false }),
-      logout: () => patch({ currentUser: null, role: 'guest' }),
+      login: (currentUser, userObj) =>
+        patch({
+          currentUser,
+          authUser: userObj ?? null,
+          role: 'other',
+          loginOpen: false,
+        }),
+      logout: () => {
+        authService.logout().catch(() => {});
+        patch({ currentUser: null, authUser: null, role: 'guest' });
+      },
       setLoginOpen: (loginOpen) => patch({ loginOpen }),
       vote,
       canVote,
@@ -152,9 +197,12 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       addClaim: (c, item) =>
         setState((s) => ({ ...s, myClaims: [c, ...s.myClaims], queue: [item, ...s.queue] })),
       reset: () => setState(initialState()),
+      setQueue,
+      recordVote,
     }),
-    [state, patch, vote, canVote],
+    [state, patch, vote, canVote, setQueue, recordVote],
   );
+
 
   return <WartaContext.Provider value={value}>{children}</WartaContext.Provider>;
 }

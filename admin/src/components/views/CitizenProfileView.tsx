@@ -8,10 +8,10 @@ import {
   ExternalLink,
   EyeOff,
   FileText,
-  Loader2,
   LogIn,
   LogOut,
   MapPin,
+  RefreshCw,
   Tag,
   ThumbsDown,
   ThumbsUp,
@@ -23,6 +23,7 @@ import { REPORT_CATEGORY_LABELS, getProject } from '../../data/wartaData';
 import { cn } from '@/lib/utils';
 import StatusBadge from '../common/StatusBadge';
 import type { CitizenClaim, CitizenReport, VoteRecord } from '../../types/warta';
+import { userService, type MyClaimDTO, type MyVoteDTO } from '../../services/user';
 
 type Tab = 'laporan' | 'klaim' | 'verifikasi';
 
@@ -42,9 +43,37 @@ const CANONICAL = 'Klaim lokasi ini sudah terverifikasi dan menjadi lokasi kanon
 
 type SelectedDetail =
   | { type: 'laporan'; data: CitizenReport }
-  | { type: 'klaim'; data: CitizenClaim }
-  | { type: 'verifikasi'; data: VoteRecord }
+  | { type: 'klaim'; data: CitizenClaim | MyClaimDTO }
+  | { type: 'verifikasi'; data: VoteRecord | MyVoteDTO }
   | null;
+
+/** Badge resolusi konsensus suara */
+function ResolutionBadge({ status }: { status: string }) {
+  const cfg: Record<string, { label: string; cls: string }> = {
+    menunggu: {
+      label: 'Menunggu Kuorum',
+      cls: 'border-warn-border bg-warn-bg text-warn-text',
+    },
+    terverifikasi: {
+      label: 'Terverifikasi',
+      cls: 'border-ok-border bg-ok-bg text-ok-text',
+    },
+    diterima: {
+      label: 'Diterima',
+      cls: 'border-ok-border bg-ok-bg text-ok-text',
+    },
+    ditolak: {
+      label: 'Ditolak',
+      cls: 'border-bad-border bg-bad-bg text-bad-text',
+    },
+  };
+  const item = cfg[status] ?? { label: status, cls: 'border-slate-200 bg-slate-100 text-slate-600' };
+  return (
+    <span className={cn('rounded-full border px-2.5 py-0.5 text-xs font-bold', item.cls)}>
+      {item.label}
+    </span>
+  );
+}
 
 function StatItem({ value, label }: { value: number; label: string }) {
   return (
@@ -57,6 +86,46 @@ function StatItem({ value, label }: { value: number; label: string }) {
 
 function Divider() {
   return <div className="h-8 w-px shrink-0 bg-white/20" />;
+}
+
+/** Skeleton baris daftar */
+function ListSkeleton() {
+  return (
+    <ul className="space-y-4" role="status" aria-label="Memuat data">
+      {[1, 2, 3].map((i) => (
+        <li
+          key={i}
+          className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white p-6"
+        >
+          <div className="flex items-start gap-4">
+            <div className="size-10 shrink-0 rounded-xl bg-slate-200" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-3/4 rounded bg-slate-200" />
+              <div className="h-3 w-1/2 rounded bg-slate-100" />
+              <div className="h-3 w-full rounded bg-slate-100" />
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Error state dengan tombol retry */
+function FetchError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <li className="flex flex-col items-center rounded-2xl border border-bad-border bg-bad-bg px-6 py-12 text-center text-bad-text">
+      <AlertTriangle className="mb-3 size-8" />
+      <p className="text-base font-bold">Gagal memuat data</p>
+      <p className="mt-1 max-w-xs text-sm">{message}</p>
+      <button
+        onClick={onRetry}
+        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-bad-text px-4 py-2 text-sm font-semibold text-white"
+      >
+        <RefreshCw className="size-4" /> Coba Lagi
+      </button>
+    </li>
+  );
 }
 
 function ItemDetailModal({
@@ -79,13 +148,22 @@ function ItemDetailModal({
   }, [onClose]);
 
   let projectObj = null;
-  if ('projectId' in data && data.projectId) {
+  const projectId =
+    'projectId' in data ? data.projectId : 'project_id' in data ? data.project_id : undefined;
+  if (projectId) {
     try {
-      projectObj = getProject(data.projectId);
+      projectObj = getProject(projectId);
     } catch {
-      // project fallback
+      // project hanya ada di mock — fallback ke null
     }
   }
+
+  // Judul proyek: support mock shape (projectTitle) & API shape (project_title)
+  const projectTitle =
+    'projectTitle' in data ? data.projectTitle : 'project_title' in data ? data.project_title : '—';
+
+  // Status: support CitizenClaim/CitizenReport (status) & MyClaimDTO (status)
+  const status = 'status' in data ? (data as { status: string }).status : undefined;
 
   return (
     <div
@@ -105,10 +183,10 @@ function ItemDetailModal({
                     ? 'Detail Klaim Lokasi'
                     : 'Detail Riwayat Suara'}
               </span>
-              {'status' in data && <StatusBadge status={data.status} size="sm" />}
+              {status && <StatusBadge status={status} size="sm" />}
             </div>
             <h2 id="profile-item-modal-title" className="text-lg leading-snug font-extrabold text-slate-900 sm:text-xl">
-              {data.projectTitle}
+              {projectTitle}
             </h2>
             {'spseCode' in data && (
               <p className="mt-0.5 font-mono text-xs text-slate-600">#{data.spseCode}</p>
@@ -130,12 +208,14 @@ function ItemDetailModal({
                 <div className="flex items-center gap-2 text-xs text-slate-600">
                   <Tag className="size-4 shrink-0 text-brand" />
                   <span className="shrink-0 font-semibold text-slate-700">Kategori Laporan:</span>
-                  <span className="truncate">{REPORT_CATEGORY_LABELS[data.category]}</span>
+                  <span className="truncate">
+                    {REPORT_CATEGORY_LABELS[(data as CitizenReport).category]}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-600">
                   <Calendar className="size-4 shrink-0 text-brand" />
                   <span className="shrink-0 font-semibold text-slate-700">Waktu Kirim:</span>
-                  <span>{data.createdAt}</span>
+                  <span>{(data as CitizenReport).createdAt}</span>
                 </div>
               </div>
 
@@ -144,88 +224,133 @@ function ItemDetailModal({
                   Isi Laporan / Pengamatan Warga
                 </p>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 text-base leading-relaxed text-slate-800">
-                  {data.narrative}
+                  {(data as CitizenReport).narrative}
                 </div>
               </div>
             </>
           )}
 
-          {type === 'klaim' && (
-            <>
-              <div className="space-y-2 rounded-xl bg-slate-50 p-4">
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <MapPin className="size-4 shrink-0 text-brand" />
-                  <span className="shrink-0 font-semibold text-slate-700">Tingkat Presisi:</span>
-                  <span className="font-semibold capitalize">{data.proposedPrecision}</span>
+          {type === 'klaim' && (() => {
+            const isMock = 'proposedAddress' in data && 'spseCode' in data;
+            const address = isMock
+              ? (data as CitizenClaim).proposedAddress
+              : (data as MyClaimDTO).proposed_address;
+            const precision = isMock
+              ? (data as CitizenClaim).proposedPrecision
+              : (data as MyClaimDTO).proposed_precision;
+            const createdAt = isMock
+              ? (data as CitizenClaim).createdAt
+              : (data as MyClaimDTO).created_at;
+            const claimStatus = isMock
+              ? (data as CitizenClaim).status
+              : (data as MyClaimDTO).status;
+            return (
+              <>
+                <div className="space-y-2 rounded-xl bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <MapPin className="size-4 shrink-0 text-brand" />
+                    <span className="shrink-0 font-semibold text-slate-700">Tingkat Presisi:</span>
+                    <span className="font-semibold capitalize">{precision}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <Calendar className="size-4 shrink-0 text-brand" />
+                    <span className="shrink-0 font-semibold text-slate-700">Waktu Usulan:</span>
+                    <span>{createdAt}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <Calendar className="size-4 shrink-0 text-brand" />
-                  <span className="shrink-0 font-semibold text-slate-700">Waktu Usulan:</span>
-                  <span>{data.createdAt}</span>
-                </div>
-              </div>
 
-              <div>
-                <p className="mb-2 text-xs font-bold tracking-wider text-slate-600 uppercase">
-                  Alamat / Titik Lokasi yang Diusulkan
-                </p>
-                <div className="rounded-xl border border-slate-200 bg-white p-4 text-base leading-relaxed text-slate-800">
-                  {data.proposedAddress}
+                <div>
+                  <p className="mb-2 text-xs font-bold tracking-wider text-slate-600 uppercase">
+                    Alamat / Titik Lokasi yang Diusulkan
+                  </p>
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 text-base leading-relaxed text-slate-800">
+                    {address}
+                  </div>
                 </div>
-              </div>
 
-              {data.status === 'diterima' && (
-                <div className="flex items-start gap-2 rounded-xl border border-ok-border bg-ok-bg p-4 text-xs font-medium text-ok-text">
-                  <BadgeCheck className="mt-0.5 size-4 shrink-0" />
-                  <span>{CANONICAL}</span>
-                </div>
-              )}
-            </>
-          )}
+                {claimStatus === 'diterima' && (
+                  <div className="flex items-start gap-2 rounded-xl border border-ok-border bg-ok-bg p-4 text-xs font-medium text-ok-text">
+                    <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+                    <span>{CANONICAL}</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
-          {type === 'verifikasi' && (
-            <>
-              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <span
-                  className={cn(
-                    'grid size-10 shrink-0 place-items-center rounded-full',
-                    data.choice === 'setuju' ? 'bg-ok-bg text-ok-text' : 'bg-bad-bg text-bad-text',
-                  )}
-                >
-                  {data.choice === 'setuju' ? (
-                    <ThumbsUp className="size-5" />
-                  ) : (
-                    <ThumbsDown className="size-5" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-slate-600">Pilihan Suara Anda:</p>
-                  <p
+          {type === 'verifikasi' && (() => {
+            const isMock = 'votedAt' in data;
+            const choice = isMock
+              ? (data as VoteRecord).choice
+              : (data as MyVoteDTO).choice;
+            const votedAt = isMock
+              ? (data as VoteRecord).votedAt
+              : (data as MyVoteDTO).created_at;
+            const itemType = isMock
+              ? (data as VoteRecord).itemType
+              : (data as MyVoteDTO).item_type;
+            const authorDisplayName = isMock
+              ? (data as VoteRecord).authorDisplayName
+              : (data as MyVoteDTO).author_display_name;
+            const resolution = !isMock ? (data as MyVoteDTO).resolution : null;
+            return (
+              <>
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <span
                     className={cn(
-                      'text-base font-extrabold',
-                      data.choice === 'setuju' ? 'text-ok-text' : 'text-bad-text',
+                      'grid size-10 shrink-0 place-items-center rounded-full',
+                      choice === 'setuju' ? 'bg-ok-bg text-ok-text' : 'bg-bad-bg text-bad-text',
                     )}
                   >
-                    {data.choice === 'setuju' ? 'SETUJU' : 'TIDAK SETUJU'}
-                  </p>
-                </div>
-                <span className="shrink-0 text-xs text-slate-600">{data.votedAt}</span>
-              </div>
-
-              <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-xs">
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-600">Jenis Kiriman:</span>
-                  <span className="text-right font-semibold text-slate-800">
-                    {data.itemType === 'klaim_lokasi' ? 'Klaim Lokasi' : 'Laporan Kondisi'}
+                    {choice === 'setuju' ? (
+                      <ThumbsUp className="size-5" />
+                    ) : (
+                      <ThumbsDown className="size-5" />
+                    )}
                   </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-slate-600">Pilihan Suara Anda:</p>
+                    <p
+                      className={cn(
+                        'text-base font-extrabold',
+                        choice === 'setuju' ? 'text-ok-text' : 'text-bad-text',
+                      )}
+                    >
+                      {choice === 'setuju' ? 'SETUJU' : 'TIDAK SETUJU'}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-slate-600">{votedAt}</span>
                 </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-600">Pelapor / Pengusul:</span>
-                  <span className="text-right font-semibold text-slate-800">{data.authorDisplayName}</span>
+
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-600">Jenis Kiriman:</span>
+                    <span className="text-right font-semibold text-slate-800">
+                      {itemType === 'klaim_lokasi' ? 'Klaim Lokasi' : 'Laporan Kondisi'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-600">Pelapor / Pengusul:</span>
+                    <span className="text-right font-semibold text-slate-800">{authorDisplayName}</span>
+                  </div>
+                  {resolution && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-600">Status Konsensus:</span>
+                      <ResolutionBadge status={resolution.status} />
+                    </div>
+                  )}
+                  {resolution && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-600">Progres Suara:</span>
+                      <span className="text-right font-semibold text-slate-800">
+                        {resolution.votes_agree + resolution.votes_disagree} / {resolution.target_votes}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            );
+          })()}
 
           {projectObj && (
             <div className="pt-2">
@@ -292,16 +417,79 @@ function Empty({ tab }: { tab: Tab }) {
 }
 
 export default function CitizenProfileView() {
-  const { currentUser, myReports, myClaims, voteHistory, logout, setLoginOpen, navigate, mapCondition, setMapCondition } =
+  const { currentUser, myReports, myClaims, voteHistory, logout, setLoginOpen, navigate } =
     useWarta();
   const [tab, setTab] = useState<Tab>('laporan');
   const [selectedDetail, setSelectedDetail] = useState<SelectedDetail>(null);
 
+  // State API untuk tab klaim
+  const [apiClaims, setApiClaims] = useState<MyClaimDTO[] | null>(null);
+  const [loadingClaims, setLoadingClaims] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  // State API untuk tab verifikasi
+  const [apiVotes, setApiVotes] = useState<MyVoteDTO[] | null>(null);
+  const [loadingVotes, setLoadingVotes] = useState(false);
+  const [voteError, setVoteError] = useState<string | null>(null);
+
+  // Fetch klaim dari API ketika user login dan tab klaim aktif
+  useEffect(() => {
+    if (!currentUser || tab !== 'klaim') return;
+    let cancelled = false;
+    setLoadingClaims(true);
+    setClaimError(null);
+    userService
+      .getMyClaims()
+      .then(({ data }) => {
+        if (!cancelled) setApiClaims(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const msg =
+            err instanceof Error ? err.message : 'Gagal memuat klaim lokasi dari server.';
+          setClaimError(msg);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingClaims(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, tab]);
+
+  // Fetch riwayat suara dari API ketika user login dan tab verifikasi aktif
+  useEffect(() => {
+    if (!currentUser || tab !== 'verifikasi') return;
+    let cancelled = false;
+    setLoadingVotes(true);
+    setVoteError(null);
+    userService
+      .getMyVotes()
+      .then(({ data }) => {
+        if (!cancelled) setApiVotes(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const msg =
+            err instanceof Error ? err.message : 'Gagal memuat riwayat suara dari server.';
+          setVoteError(msg);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingVotes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, tab]);
+
   if (!currentUser) return <GuestScreen onLogin={() => setLoginOpen(true)} />;
 
+  // Hitung total dari API jika tersedia, fallback ke WartaContext
   const totalReports = myReports.length;
-  const totalClaims = myClaims.length;
-  const totalVotes = voteHistory.length;
+  const totalClaims = apiClaims !== null ? apiClaims.length : myClaims.length;
+  const totalVotes = apiVotes !== null ? apiVotes.length : voteHistory.length;
 
   const initials = currentUser
     .replace('Warga_', '')
@@ -321,6 +509,7 @@ export default function CitizenProfileView() {
         />
       )}
 
+      {/* Header kartu profil */}
       <div className="overflow-hidden rounded-2xl border border-brand-dark bg-brand shadow-xs">
         <div className="flex items-center gap-4 p-6">
           <span className="grid size-14 shrink-0 place-items-center rounded-full bg-white/15 text-xl font-black text-white ring-2 ring-white/25">
@@ -353,6 +542,7 @@ export default function CitizenProfileView() {
         </div>
       </div>
 
+      {/* Tab switcher */}
       <div
         role="tablist"
         aria-label="Riwayat aktivitas"
@@ -378,153 +568,223 @@ export default function CitizenProfileView() {
         ))}
       </div>
 
-      {mapCondition === 'loading' ? (
-        <div
-          role="status"
-          className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center"
-        >
-          <Loader2 className="mb-3 size-8 animate-spin text-brand" />
-          <p className="text-base font-bold text-slate-900">Memuat riwayat kontribusi…</p>
-        </div>
-      ) : mapCondition === 'tile-error' ? (
-        <div
-          role="alert"
-          className="flex flex-col items-center justify-center rounded-2xl border border-bad-border bg-bad-bg px-6 py-12 text-center text-bad-text"
-        >
-          <AlertTriangle className="mb-3 size-8" />
-          <p className="text-base font-bold">Gagal memuat riwayat aktivitas</p>
-          <button
-            onClick={() => setMapCondition('normal')}
-            className="mt-4 rounded-xl bg-bad-text px-4 py-2 text-sm font-semibold text-white"
-          >
-            Muat Ulang
-          </button>
-        </div>
-      ) : (
-        <ul role="tabpanel" className="space-y-4">
-          {tab === 'laporan' &&
-            (myReports.length === 0 ? (
-              <Empty tab="laporan" />
-            ) : (
-              myReports.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDetail({ type: 'laporan', data: r })}
-                    className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"
-                  >
-                    <div className="flex items-start gap-4 p-6">
-                      <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
-                        <FileText className="size-5" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-                          <p className="text-base leading-snug font-bold text-slate-900 transition-colors group-hover:text-brand">
-                            {r.projectTitle}
-                          </p>
-                          <div className="shrink-0 self-start sm:self-auto">
-                            <StatusBadge status={r.status} size="sm" />
-                          </div>
-                        </div>
-                        <p className="mb-2 text-xs text-slate-600">
-                          <span className="font-mono font-semibold">#{r.spseCode}</span>
-                          {' · '}
-                          <span>{REPORT_CATEGORY_LABELS[r.category]}</span>
-                          {' · '}
-                          <span>{r.createdAt}</span>
-                        </p>
-                        <p className="line-clamp-2 text-base leading-relaxed text-slate-700">
-                          {r.narrative}
-                        </p>
-                      </div>
-                      <ChevronRight className="mt-1 size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
-                    </div>
-                  </button>
-                </li>
-              ))
-            ))}
-
-          {tab === 'klaim' &&
-            (myClaims.length === 0 ? (
-              <Empty tab="klaim" />
-            ) : (
-              myClaims.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDetail({ type: 'klaim', data: c })}
-                    className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"
-                  >
-                    <div className="flex items-start gap-4 p-6">
-                      <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
-                        <MapPin className="size-5" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-                          <p className="text-base leading-snug font-bold text-slate-900 transition-colors group-hover:text-brand">
-                            {c.projectTitle}
-                          </p>
-                          <div className="shrink-0 self-start sm:self-auto">
-                            <StatusBadge status={c.status} size="sm" />
-                          </div>
-                        </div>
-                        <p className="mb-2 text-xs text-slate-600">
-                          <span className="font-mono font-semibold">#{c.spseCode}</span>
-                          {' · '}
-                          Presisi <span className="font-semibold capitalize">{c.proposedPrecision}</span>
-                          {' · '}
-                          <span>{c.createdAt}</span>
-                        </p>
-                        <p className="line-clamp-2 text-base leading-relaxed text-slate-700">
-                          {c.proposedAddress}
-                        </p>
-                        {c.status === 'diterima' && (
-                          <p className="mt-3 flex items-start gap-2 rounded-xl border border-ok-border bg-ok-bg px-3 py-2 text-xs font-medium text-ok-text">
-                            <BadgeCheck className="mt-0.5 size-4 shrink-0" />
-                            <span>{CANONICAL}</span>
-                          </p>
-                        )}
-                      </div>
-                      <ChevronRight className="mt-1 size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
-                    </div>
-                  </button>
-                </li>
-              ))
-            ))}
-
-          {tab === 'verifikasi' &&
-            (voteHistory.length === 0 ? (
-              <Empty tab="verifikasi" />
-            ) : (
-              voteHistory.map((v) => (
-                <li key={v.itemId + v.votedAt}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDetail({ type: 'verifikasi', data: v })}
-                    className="group flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left transition hover:border-slate-300 hover:shadow-md"
-                  >
-                    <span
-                      className={cn(
-                        'grid size-10 shrink-0 place-items-center rounded-xl transition-colors',
-                        v.choice === 'setuju'
-                          ? 'bg-ok-bg text-ok-text group-hover:bg-ok-border group-hover:text-white'
-                          : 'bg-bad-bg text-bad-text group-hover:bg-bad-border group-hover:text-white',
-                      )}
-                    >
-                      {v.choice === 'setuju' ? (
-                        <ThumbsUp className="size-5" />
-                      ) : (
-                        <ThumbsDown className="size-5" />
-                      )}
+      {/* Panel tab */}
+      <ul role="tabpanel" className="space-y-4">
+        {/* TAB LAPORAN — masih dari WartaContext (tidak ada endpoint history khusus di-task-kan) */}
+        {tab === 'laporan' &&
+          (myReports.length === 0 ? (
+            <Empty tab="laporan" />
+          ) : (
+            myReports.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetail({ type: 'laporan', data: r })}
+                  className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"
+                >
+                  <div className="flex items-start gap-4 p-6">
+                    <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
+                      <FileText className="size-5" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="mb-1 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-                        <p className="line-clamp-1 text-base font-bold text-slate-900 transition-colors group-hover:text-brand">
-                          {v.projectTitle}
+                      <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                        <p className="text-base leading-snug font-bold text-slate-900 transition-colors group-hover:text-brand">
+                          {r.projectTitle}
                         </p>
+                        <div className="shrink-0 self-start sm:self-auto">
+                          <StatusBadge status={r.status} size="sm" />
+                        </div>
+                      </div>
+                      <p className="mb-2 text-xs text-slate-600">
+                        <span className="font-mono font-semibold">#{r.spseCode}</span>
+                        {' · '}
+                        <span>{REPORT_CATEGORY_LABELS[r.category]}</span>
+                        {' · '}
+                        <span>{r.createdAt}</span>
+                      </p>
+                      <p className="line-clamp-2 text-base leading-relaxed text-slate-700">
+                        {r.narrative}
+                      </p>
+                    </div>
+                    <ChevronRight className="mt-1 size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
+                  </div>
+                </button>
+              </li>
+            ))
+          ))}
+
+        {/* TAB KLAIM — data dari API, fallback ke WartaContext */}
+        {tab === 'klaim' && (() => {
+          if (loadingClaims) return <ListSkeleton />;
+
+          // Gunakan data API jika berhasil dimuat
+          if (apiClaims !== null) {
+            if (apiClaims.length === 0) return <Empty tab="klaim" />;
+            if (claimError) {
+              return (
+                <FetchError
+                  message={claimError}
+                  onRetry={() => {
+                    setApiClaims(null);
+                    setClaimError(null);
+                    setTab('laporan');
+                    setTimeout(() => setTab('klaim'), 50);
+                  }}
+                />
+              );
+            }
+            return apiClaims.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetail({ type: 'klaim', data: c })}
+                  className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"
+                >
+                  <div className="flex items-start gap-4 p-6">
+                    <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
+                      <MapPin className="size-5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                        <p className="text-base leading-snug font-bold text-slate-900 transition-colors group-hover:text-brand">
+                          Proyek <span className="font-mono text-sm">{c.project_id.slice(0, 8)}…</span>
+                        </p>
+                        <div className="shrink-0 self-start sm:self-auto">
+                          <StatusBadge status={c.status} size="sm" />
+                        </div>
+                      </div>
+                      <p className="mb-2 text-xs text-slate-600">
+                        Presisi <span className="font-semibold capitalize">{c.proposed_precision}</span>
+                        {' · '}
+                        <span>{c.created_at}</span>
+                      </p>
+                      <p className="line-clamp-2 text-base leading-relaxed text-slate-700">
+                        {c.proposed_address}
+                      </p>
+                      {c.status === 'diterima' && (
+                        <p className="mt-3 flex items-start gap-2 rounded-xl border border-ok-border bg-ok-bg px-3 py-2 text-xs font-medium text-ok-text">
+                          <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+                          <span>{CANONICAL}</span>
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="mt-1 size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
+                  </div>
+                </button>
+              </li>
+            ));
+          }
+
+          // Fallback ke WartaContext saat API gagal
+          if (claimError) {
+            return (
+              <FetchError
+                message={claimError}
+                onRetry={() => {
+                  setApiClaims(null);
+                  setClaimError(null);
+                  setTab('laporan');
+                  setTimeout(() => setTab('klaim'), 50);
+                }}
+              />
+            );
+          }
+
+          if (myClaims.length === 0) return <Empty tab="klaim" />;
+          return myClaims.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedDetail({ type: 'klaim', data: c })}
+                className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"
+              >
+                <div className="flex items-start gap-4 p-6">
+                  <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
+                    <MapPin className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                      <p className="text-base leading-snug font-bold text-slate-900 transition-colors group-hover:text-brand">
+                        {c.projectTitle}
+                      </p>
+                      <div className="shrink-0 self-start sm:self-auto">
+                        <StatusBadge status={c.status} size="sm" />
+                      </div>
+                    </div>
+                    <p className="mb-2 text-xs text-slate-600">
+                      <span className="font-mono font-semibold">#{c.spseCode}</span>
+                      {' · '}
+                      Presisi <span className="font-semibold capitalize">{c.proposedPrecision}</span>
+                      {' · '}
+                      <span>{c.createdAt}</span>
+                    </p>
+                    <p className="line-clamp-2 text-base leading-relaxed text-slate-700">
+                      {c.proposedAddress}
+                    </p>
+                    {c.status === 'diterima' && (
+                      <p className="mt-3 flex items-start gap-2 rounded-xl border border-ok-border bg-ok-bg px-3 py-2 text-xs font-medium text-ok-text">
+                        <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+                        <span>{CANONICAL}</span>
+                      </p>
+                    )}
+                  </div>
+                  <ChevronRight className="mt-1 size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
+                </div>
+              </button>
+            </li>
+          ));
+        })()}
+
+        {/* TAB VERIFIKASI — data dari API, fallback ke WartaContext */}
+        {tab === 'verifikasi' && (() => {
+          if (loadingVotes) return <ListSkeleton />;
+
+          // Gunakan data API jika berhasil dimuat
+          if (apiVotes !== null) {
+            if (apiVotes.length === 0) return <Empty tab="verifikasi" />;
+            if (voteError) {
+              return (
+                <FetchError
+                  message={voteError}
+                  onRetry={() => {
+                    setApiVotes(null);
+                    setVoteError(null);
+                    setTab('laporan');
+                    setTimeout(() => setTab('verifikasi'), 50);
+                  }}
+                />
+              );
+            }
+            return apiVotes.map((v) => (
+              <li key={v.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetail({ type: 'verifikasi', data: v })}
+                  className="group flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left transition hover:border-slate-300 hover:shadow-md"
+                >
+                  <span
+                    className={cn(
+                      'grid size-10 shrink-0 place-items-center rounded-xl transition-colors',
+                      v.choice === 'setuju'
+                        ? 'bg-ok-bg text-ok-text group-hover:bg-ok-border group-hover:text-white'
+                        : 'bg-bad-bg text-bad-text group-hover:bg-bad-border group-hover:text-white',
+                    )}
+                  >
+                    {v.choice === 'setuju' ? (
+                      <ThumbsUp className="size-5" />
+                    ) : (
+                      <ThumbsDown className="size-5" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                      <p className="line-clamp-1 text-base font-bold text-slate-900 transition-colors group-hover:text-brand">
+                        {v.project_title}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
                         <span
                           className={cn(
-                            'shrink-0 self-start rounded-full border px-2.5 py-0.5 text-xs font-bold sm:self-auto',
+                            'rounded-full border px-2.5 py-0.5 text-xs font-bold',
                             v.choice === 'setuju'
                               ? 'border-ok-border bg-ok-bg text-ok-text'
                               : 'border-bad-border bg-bad-bg text-bad-text',
@@ -532,22 +792,90 @@ export default function CitizenProfileView() {
                         >
                           {v.choice === 'setuju' ? 'SETUJU' : 'TOLAK'}
                         </span>
+                        <ResolutionBadge status={v.resolution.status} />
                       </div>
-                      <p className="truncate text-xs text-slate-600">
-                        {v.itemType === 'klaim_lokasi' ? 'Klaim lokasi' : 'Laporan kondisi'}
-                        {' oleh '}
-                        <span className="font-semibold">{v.authorDisplayName}</span>
-                        {' · '}
-                        {v.votedAt}
-                      </p>
                     </div>
-                    <ChevronRight className="size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
-                  </button>
-                </li>
-              ))
-            ))}
-        </ul>
-      )}
+                    <p className="truncate text-xs text-slate-600">
+                      {v.item_type === 'klaim_lokasi' ? 'Klaim lokasi' : 'Laporan kondisi'}
+                      {' oleh '}
+                      <span className="font-semibold">{v.author_display_name}</span>
+                      {' · '}
+                      {v.created_at}
+                    </p>
+                  </div>
+                  <ChevronRight className="size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
+                </button>
+              </li>
+            ));
+          }
+
+          // Fallback ke WartaContext saat API gagal
+          if (voteError) {
+            return (
+              <FetchError
+                message={voteError}
+                onRetry={() => {
+                  setApiVotes(null);
+                  setVoteError(null);
+                  setTab('laporan');
+                  setTimeout(() => setTab('verifikasi'), 50);
+                }}
+              />
+            );
+          }
+
+          if (voteHistory.length === 0) return <Empty tab="verifikasi" />;
+          return voteHistory.map((v) => (
+            <li key={v.itemId + v.votedAt}>
+              <button
+                type="button"
+                onClick={() => setSelectedDetail({ type: 'verifikasi', data: v })}
+                className="group flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left transition hover:border-slate-300 hover:shadow-md"
+              >
+                <span
+                  className={cn(
+                    'grid size-10 shrink-0 place-items-center rounded-xl transition-colors',
+                    v.choice === 'setuju'
+                      ? 'bg-ok-bg text-ok-text group-hover:bg-ok-border group-hover:text-white'
+                      : 'bg-bad-bg text-bad-text group-hover:bg-bad-border group-hover:text-white',
+                  )}
+                >
+                  {v.choice === 'setuju' ? (
+                    <ThumbsUp className="size-5" />
+                  ) : (
+                    <ThumbsDown className="size-5" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                    <p className="line-clamp-1 text-base font-bold text-slate-900 transition-colors group-hover:text-brand">
+                      {v.projectTitle}
+                    </p>
+                    <span
+                      className={cn(
+                        'shrink-0 self-start rounded-full border px-2.5 py-0.5 text-xs font-bold sm:self-auto',
+                        v.choice === 'setuju'
+                          ? 'border-ok-border bg-ok-bg text-ok-text'
+                          : 'border-bad-border bg-bad-bg text-bad-text',
+                      )}
+                    >
+                      {v.choice === 'setuju' ? 'SETUJU' : 'TOLAK'}
+                    </span>
+                  </div>
+                  <p className="truncate text-xs text-slate-600">
+                    {v.itemType === 'klaim_lokasi' ? 'Klaim lokasi' : 'Laporan kondisi'}
+                    {' oleh '}
+                    <span className="font-semibold">{v.authorDisplayName}</span>
+                    {' · '}
+                    {v.votedAt}
+                  </p>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-slate-600 transition-colors group-hover:text-brand" />
+              </button>
+            </li>
+          ));
+        })()}
+      </ul>
     </div>
   );
 }
