@@ -129,7 +129,11 @@ export interface VerificationItem {
   targetVotes: number;
   voters: string[];
   status: ReportStatus | ClaimStatus;
+  reportId?: string | null;
+  claimId?: string | null;
+  exifStatus?: string;
 }
+
 
 export interface CitizenReport {
   id: string;
