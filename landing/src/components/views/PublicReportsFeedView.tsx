@@ -10,7 +10,6 @@ import {
   Inbox,
   Map,
   MapPin,
-  MessageSquarePlus,
   RotateCcw,
   Search,
   ThumbsDown,
@@ -22,6 +21,11 @@ import {
 import { useWarta } from '../../context/WartaContext';
 import { DATASET_SUMMARY, WARTA_PROJECTS } from '../../data/wartaData';
 import type { VerificationItem } from '../../types/warta';
+import {
+  reportsService,
+  reportToVerificationItem,
+  apiItemToVerificationItem,
+} from '../../services/reports';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
 
@@ -48,18 +52,65 @@ export default function PublicReportsFeedView() {
   const [q, setQ] = useState('');
   const [type, setType] = useState<TypeFilter>('semua');
   const [status, setStatus] = useState<StatusFilter>('semua');
-  const [projectFilter, setProjectFilter] = useState<string>('semua');
+  const [projectFilter, setProjectFilter] = useState<string>(selectedProjectId ?? 'semua');
   const [sort, setSort] = useState<SortKey>('terbaru');
   const [feedState, setFeedState] = useState<FeedState>('ready');
+  const [apiItems, setApiItems] = useState<VerificationItem[] | null>(null);
 
   // Form tambah bukti pendukung (POST /reports/{report_id}/evidences)
   const [evDesc, setEvDesc] = useState('');
   const [evPhoto, setEvPhoto] = useState<string | undefined>(undefined);
   const [evError, setEvError] = useState('');
 
+  // Fetch reports from API (specific project reports or global verification queue)
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      try {
+        if (projectFilter !== 'semua') {
+          const res = await reportsService.listProjectReports(
+            projectFilter,
+            { status: status !== 'semua' ? status : undefined },
+            controller.signal,
+          );
+          const projectObj = WARTA_PROJECTS.find((p) => p.id === projectFilter) ?? null;
+          const mapped = res.data.map((r) => reportToVerificationItem(r, projectObj));
+          setApiItems(mapped);
+          setFeedState('ready');
+        } else {
+          const res = await reportsService.listVerificationQueue(
+            {
+              status: status !== 'semua' ? status : undefined,
+              item_type: type !== 'semua' ? type : undefined,
+            },
+            controller.signal,
+          );
+          const mapped = res.data.map((it) => apiItemToVerificationItem(it));
+          setApiItems(mapped);
+          setFeedState('ready');
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          // Fallback gracefully to context queue on offline or API error
+          setApiItems(null);
+          setFeedState('ready');
+        }
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
+  }, [projectFilter, status, type]);
+
+  const activeQueue = useMemo(() => {
+    return apiItems !== null ? apiItems : queue;
+  }, [apiItems, queue]);
+
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
-    const filtered = queue.filter((it) => {
+    const filtered = activeQueue.filter((it) => {
       const matchTerm =
         !term ||
         [
@@ -77,11 +128,11 @@ export default function PublicReportsFeedView() {
     });
     if (sort === 'dukungan') return [...filtered].sort((a, b) => b.votesAgree - a.votesAgree);
     return filtered;
-  }, [queue, q, type, status, projectFilter, sort]);
+  }, [activeQueue, q, type, status, projectFilter, sort]);
 
   const active = useMemo(
-    () => (selectedReportId ? queue.find((it) => it.id === selectedReportId) ?? null : null),
-    [queue, selectedReportId],
+    () => (selectedReportId ? activeQueue.find((it) => it.id === selectedReportId) ?? null : null),
+    [activeQueue, selectedReportId],
   );
 
   useEffect(() => {
@@ -123,8 +174,8 @@ export default function PublicReportsFeedView() {
     setEvPhoto(undefined);
   };
 
-  const waitingCount = queue.filter((it) => it.status === 'menunggu').length;
-  const verifiedCount = queue.filter(
+  const waitingCount = activeQueue.filter((it) => it.status === 'menunggu').length;
+  const verifiedCount = activeQueue.filter(
     (it) => it.status === 'terverifikasi' || it.status === 'diterima' || it.status === 'selesai',
   ).length;
 
@@ -166,12 +217,12 @@ export default function PublicReportsFeedView() {
           </div>
         </div>
 
-        {/* Statistik Ringkas Transparansi (Tanpa Kotak Berbatas Bertumpuk) */}
+        {/* Statistik Ringkas Transparansi */}
         <dl className="grid grid-cols-2 gap-6 pt-2 sm:grid-cols-4">
           <div className="border-l-2 border-brand pl-4">
             <dt className="text-sm font-medium text-slate-600">Total Aduan Masuk</dt>
             <dd className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
-              {queue.length} laporan
+              {activeQueue.length} laporan
             </dd>
           </div>
           <div className="border-l-2 border-amber-500 pl-4">
@@ -316,17 +367,17 @@ export default function PublicReportsFeedView() {
               <Inbox className="size-7 text-slate-500" aria-hidden="true" />
             </span>
             <h2 className="text-xl font-bold text-slate-900">
-              {queue.length === 0
+              {activeQueue.length === 0
                 ? 'Belum ada aduan warga yang dikirim'
                 : 'Tidak ada aduan yang cocok dengan filter'}
             </h2>
             <p className="mx-auto mt-2 mb-8 max-w-lg text-base leading-relaxed text-slate-600">
-              {queue.length === 0
+              {activeQueue.length === 0
                 ? 'Jadilah warga pertama yang membagikan foto kondisi lapangan atau mengusulkan titik lokasi proyek infrastruktur di sekitar tempat tinggal Anda.'
                 : 'Coba ubah kata kunci pencarian atau setel ulang filter status dan proyek untuk melihat laporan lainnya.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              {queue.length === 0 ? (
+              {activeQueue.length === 0 ? (
                 <>
                   <button
                     type="button"
@@ -376,7 +427,7 @@ export default function PublicReportsFeedView() {
                       </div>
                     </div>
 
-                    {/* Isi Kartu dengan Ruang Napas Lega */}
+                    {/* Isi Kartu */}
                     <div className="flex flex-1 flex-col justify-between space-y-4 p-6">
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between gap-2 text-xs font-semibold text-brand">
@@ -417,7 +468,7 @@ export default function PublicReportsFeedView() {
         )}
       </section>
 
-      {/* Modal Detail Laporan, Voting Kuorum & Bukti Pendukung (Muncul Saat Kartu Diklik) */}
+      {/* Modal Detail Laporan, Voting Kuorum & Bukti Pendukung */}
       {active && (
         <div
           className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-xs sm:items-center sm:p-4"
@@ -456,7 +507,7 @@ export default function PublicReportsFeedView() {
             </div>
 
             <div className="space-y-8 p-6 sm:p-8">
-              {/* Foto Bukti Lapangan & Status EXIF (Jika Tersedia) */}
+              {/* Foto Bukti Lapangan & Status EXIF */}
               <div className="space-y-3">
                 <ReportPhoto
                   src={active.photoUrl}
@@ -519,7 +570,7 @@ export default function PublicReportsFeedView() {
                   }).map((_, i) => (
                     <span
                       key={i}
-                      className={`flex-1 rounded-full ${
+                      className={`h-full flex-1 rounded-full transition-colors ${
                         i < active.votesAgree
                           ? 'bg-ok-border'
                           : i < active.votesAgree + active.votesDisagree
@@ -530,109 +581,116 @@ export default function PublicReportsFeedView() {
                   ))}
                 </div>
 
-                {(() => {
-                  const check = canVote(active);
-                  return (
-                    <div className="space-y-3">
-                      {!check.allowed && check.reason && (
-                        <p className="text-sm text-slate-600">{check.reason}</p>
-                      )}
-                      <div className="flex flex-col gap-3 sm:flex-row">
-                        <button
-                          type="button"
-                          disabled={!check.allowed}
-                          onClick={() => vote(active.id, 'setuju')}
-                          className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-ok-border bg-ok-bg py-3 text-sm font-semibold text-ok-text transition hover:brightness-95 disabled:opacity-45"
-                        >
-                          <ThumbsUp className="size-4" aria-hidden="true" /> Setuju, Sesuai Kondisi Lapangan
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!check.allowed}
-                          onClick={() => vote(active.id, 'tidak_setuju')}
-                          className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-bad-border bg-bad-bg py-3 text-sm font-semibold text-bad-text transition hover:brightness-95 disabled:opacity-45"
-                        >
-                          <ThumbsDown className="size-4" aria-hidden="true" /> Tidak Sesuai
-                        </button>
-                      </div>
+                {active.status === 'menunggu' && (
+                  <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        Apakah laporan ini sesuai kondisi lapangan?
+                      </p>
+                      <p className="text-xs text-slate-600">
+                        1 suara per warga. Suara Anda tidak dapat diubah setelah dikirim.
+                      </p>
                     </div>
-                  );
-                })()}
+
+                    {(() => {
+                      const check = canVote(active);
+                      if (!check.allowed) {
+                        return (
+                          <p className="text-xs font-medium text-slate-600 sm:max-w-xs sm:text-right">
+                            {check.reason}
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => vote(active.id, 'setuju')}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-ok-bg px-4 py-2 text-sm font-semibold text-ok-text transition hover:bg-emerald-100"
+                          >
+                            <ThumbsUp className="size-4" aria-hidden="true" /> Setuju
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => vote(active.id, 'tidak_setuju')}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-bad-bg px-4 py-2 text-sm font-semibold text-bad-text transition hover:bg-rose-100"
+                          >
+                            <ThumbsDown className="size-4" aria-hidden="true" /> Tidak Sesuai
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
-              {/* Bukti Pendukung & Komentar Pengamatan Warga Lain */}
-              <div className="space-y-5 border-t border-slate-200 pt-6">
-                <div>
-                  <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
-                    <MessageSquarePlus className="size-5 text-brand" aria-hidden="true" />
-                    Bukti Pendukung & Tanggapan Lapangan ({(active.evidences ?? []).length})
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Warga lain atau perwakilan instansi dapat melampirkan foto dan catatan perkembangan terbaru di lokasi ini.
-                  </p>
-                </div>
+              {/* Bukti Tambahan dari Warga Lain */}
+              <div className="space-y-4 border-t border-slate-200 pt-6">
+                <h3 className="text-base font-bold text-slate-900">
+                  Bukti Tambahan Warga ({(active.evidences ?? []).length})
+                </h3>
 
                 {(active.evidences ?? []).length === 0 ? (
                   <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                    Belum ada bukti pendukung tambahan pada aduan ini.
+                    Belum ada bukti tambahan dari warga lain. Anda dapat menambahkan foto atau keterangan saksi mata di bawah.
                   </p>
                 ) : (
                   <ul className="space-y-3">
                     {(active.evidences ?? []).map((ev) => (
-                      <li key={ev.id} className="rounded-xl bg-slate-50 p-4 text-sm">
-                        <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                          <span className="font-bold text-slate-900">{ev.authorDisplayName}</span>
-                          <div className="flex items-center gap-3">
-                            <span>{ev.createdAt}</span>
-                            {currentUser === ev.authorDisplayName && active.status === 'menunggu' && (
+                      <li
+                        key={ev.id}
+                        className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-start"
+                      >
+                        {ev.photoUrl && (
+                          <img
+                            src={ev.photoUrl}
+                            alt="Bukti warga"
+                            className="h-20 w-24 shrink-0 rounded-lg object-cover"
+                          />
+                        )}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                            <span>
+                              Oleh <b className="text-slate-800">{ev.authorDisplayName}</b> · {ev.createdAt}
+                            </span>
+                            {currentUser === ev.authorDisplayName && (
                               <button
                                 type="button"
                                 onClick={() => deleteEvidence(active.id, ev.id)}
-                                className="inline-flex items-center gap-1 font-semibold text-bad-text hover:underline"
+                                className="inline-flex items-center gap-1 text-bad-text hover:underline"
                               >
                                 <Trash2 className="size-3.5" aria-hidden="true" /> Hapus
                               </button>
                             )}
                           </div>
+                          <p className="text-sm leading-relaxed text-slate-800">{ev.description}</p>
                         </div>
-                        <p className="mt-2 text-base leading-relaxed text-slate-800">{ev.description}</p>
-                        {ev.photoUrl && (
-                          <img
-                            src={ev.photoUrl}
-                            alt="Foto bukti pendukung"
-                            className="mt-3 max-h-48 rounded-lg border border-slate-200 object-cover"
-                          />
-                        )}
                       </li>
                     ))}
                   </ul>
                 )}
 
+                {/* Form Tambah Bukti */}
                 <form
                   onSubmit={(e) => submitEvidence(e, active)}
-                  className="space-y-3 rounded-xl border border-slate-200 p-4"
-                  noValidate
+                  className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
                 >
-                  <label
-                    htmlFor="evidence-description"
-                    className="block text-sm font-bold text-slate-900"
-                  >
-                    Tambahkan bukti pendukung atau pembaruan lapangan
-                  </label>
+                  <p className="text-sm font-bold text-slate-900">
+                    Punya bukti foto atau kesaksian tambahan?
+                  </p>
                   <textarea
-                    id="evidence-description"
+                    rows={2}
                     value={evDesc}
                     onChange={(e) => setEvDesc(e.target.value)}
-                    rows={3}
-                    placeholder="Tulis pengamatan tambahan Anda di lokasi yang sama (minimal 10 karakter)..."
-                    className="w-full rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+                    placeholder="Tuliskan keterangan kondisi terbaru atau informasi tambahan..."
+                    className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
                   />
 
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
                         <ImagePlus className="size-4 text-brand" aria-hidden="true" />
-                        {evPhoto ? 'Ganti foto bukti' : 'Lampirkan foto (opsional)'}
+                        <span>{evPhoto ? 'Ganti foto' : 'Lampirkan foto'}</span>
                         <input
                           type="file"
                           accept="image/*"
