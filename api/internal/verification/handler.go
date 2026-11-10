@@ -3,7 +3,6 @@ package verification
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -55,7 +54,7 @@ func (h *Handler) ListQueue(c fiber.Ctx) error {
 
 	if rawProjectID := strings.TrimSpace(c.Query("project_id")); rawProjectID != "" {
 		if _, err := uuid.Parse(rawProjectID); err != nil {
-			return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "project_id must be a valid UUID", httpx.FieldError{
+			return httpx.Error(c, fiber.StatusBadRequest, "validation_failed", "project_id must be a valid UUID", httpx.FieldError{
 				Field:   "project_id",
 				Message: "must be a valid UUID",
 			})
@@ -63,34 +62,16 @@ func (h *Handler) ListQueue(c fiber.Ctx) error {
 		filter.ProjectID = rawProjectID
 	}
 
-	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
-		p, err := strconv.Atoi(rawPage)
-		if err != nil || p < 1 {
-			return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "page must be a positive integer", httpx.FieldError{
-				Field:   "page",
-				Message: "must be >= 1",
-			})
-		}
-		filter.Page = p
-	}
-
-	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
-		l, err := strconv.Atoi(rawLimit)
-		if err != nil || l < 1 {
-			return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "limit must be a positive integer", httpx.FieldError{
-				Field:   "limit",
-				Message: "must be >= 1",
-			})
-		}
-		filter.Limit = l
-	}
+	page, limit := httpx.ParsePagination(c)
+	filter.Page = page
+	filter.Limit = limit
 
 	res, err := h.queueStore.ListQueue(c.Context(), filter)
 	if err != nil {
 		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to list verification queue")
 	}
 
-	return c.JSON(fiber.Map{
+	return httpx.EnvelopeETag(c, fiber.Map{
 		"data": res.Data,
 		"meta": res.Meta,
 	})
@@ -98,56 +79,39 @@ func (h *Handler) ListQueue(c fiber.Ctx) error {
 
 // GetItem handles GET /verification-items/:item_id (§5.5, §7.3).
 func (h *Handler) GetItem(c fiber.Ctx) error {
-	itemID := c.Params("item_id")
-	if _, err := uuid.Parse(itemID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid item_id format")
+	itemID, ok := httpx.ValidateUUIDParam(c, "item_id")
+	if !ok {
+		return nil
 	}
 
 	item, err := h.queueStore.GetItemByID(c.Context(), itemID)
 	if err != nil {
 		if errors.Is(err, ErrItemNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "item_not_found", "verification item not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "verification item not found")
 		}
 		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to get verification item")
 	}
 
-	return httpx.Data(c, fiber.StatusOK, item.View())
+	return httpx.DataETag(c, item.View())
 }
 
 // ListVotes handles GET /verification-items/:item_id/votes (§5.5, openapi VoteListResponse).
 func (h *Handler) ListVotes(c fiber.Ctx) error {
-	itemID := c.Params("item_id")
-	if _, err := uuid.Parse(itemID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid item_id format")
+	itemID, ok := httpx.ValidateUUIDParam(c, "item_id")
+	if !ok {
+		return nil
 	}
 
-	var filter ListFilter
-	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
-		p, err := strconv.Atoi(rawPage)
-		if err != nil || p < 1 {
-			return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "page must be a positive integer", httpx.FieldError{
-				Field:   "page",
-				Message: "must be >= 1",
-			})
-		}
-		filter.Page = p
-	}
-
-	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
-		l, err := strconv.Atoi(rawLimit)
-		if err != nil || l < 1 {
-			return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "limit must be a positive integer", httpx.FieldError{
-				Field:   "limit",
-				Message: "must be >= 1",
-			})
-		}
-		filter.Limit = l
+	page, limit := httpx.ParsePagination(c)
+	filter := ListFilter{
+		Page:  page,
+		Limit: limit,
 	}
 
 	res, err := h.voteStore.ListByItem(c.Context(), itemID, filter)
 	if err != nil {
 		if errors.Is(err, ErrItemNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "item_not_found", "verification item not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "verification item not found")
 		}
 		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to list votes")
 	}
@@ -166,9 +130,9 @@ type CastVoteRequest struct {
 // CastVote handles POST /verification-items/:item_id/votes (§6.17).
 // Requires authenticated citizen.
 func (h *Handler) CastVote(c fiber.Ctx) error {
-	itemID := c.Params("item_id")
-	if _, err := uuid.Parse(itemID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid item_id format")
+	itemID, ok := httpx.ValidateUUIDParam(c, "item_id")
+	if !ok {
+		return nil
 	}
 
 	userID, _ := c.Locals(middleware.LocalUserID).(string)
@@ -178,7 +142,7 @@ func (h *Handler) CastVote(c fiber.Ctx) error {
 
 	var req CastVoteRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_json", "failed to parse request body")
+		return httpx.Error(c, fiber.StatusBadRequest, "bad_request", "failed to parse request body")
 	}
 
 	choice, ok := ParseVoteChoice(strings.TrimSpace(req.Choice))
@@ -192,7 +156,7 @@ func (h *Handler) CastVote(c fiber.Ctx) error {
 	vote, err := h.voteStore.CastVote(c.Context(), itemID, userID, choice)
 	if err != nil {
 		if errors.Is(err, ErrItemNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "item_not_found", "verification item not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "verification item not found")
 		}
 		if errors.Is(err, ErrSelfVote) {
 			return httpx.Error(c, fiber.StatusForbidden, "self_vote_forbidden", "authors cannot vote on their own content")
