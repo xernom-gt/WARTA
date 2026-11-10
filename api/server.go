@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -178,6 +179,11 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		BodyLimit:    10 * 1024 * 1024,
 		ErrorHandler: renderError,
 	})
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-Id"},
+	}))
 	app.Use(recover.New()) // panics never leak stack traces (EnableStackTrace is false by default)
 	app.Use(middleware.RequestID())
 
