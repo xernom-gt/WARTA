@@ -35,14 +35,14 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 ## 📦 Projects
 
 ### Core Project Endpoints
-- [ ] `GET /projects` — List with filters: `q`, `category`, `city`, `status`, `year`, `precision_level`, `is_outside_dki`, `is_retender`, `sort`, `page`, `limit`; returns project summaries with derived fields; `ETag` support
-- [ ] `GET /projects/{project_id}` — Full detail with embedded: `tenders`, `sub_locations`, `risk_flags`, `location` (primary), derived fields
-- [ ] `GET /projects/map` — Lightweight pins: `bbox` required, optional `status`, `category`; returns `id`, `title`, `lat`, `lng`, `precision_level`, `status`, `category`
+- [x] `GET /projects` — List with filters: `q`, `category`, `city`, `status`, `year`, `precision_level`, `is_outside_dki`, `is_retender`, `sort`, `page`, `limit`; returns project summaries with derived fields; `ETag` support
+- [x] `GET /projects/{project_id}` — Full detail with embedded: `tenders`, `sub_locations`, `risk_flags`, `location` (primary), derived fields
+- [x] `GET /projects/map` — Lightweight pins: `bbox` required, optional `status`, `category`; returns `id`, `title`, `lat`, `lng`, `precision_level`, `status`, `category`
 
 ### Project Sub-resources (Read-only)
-- [ ] `GET /projects/{project_id}/tenders` — History ordered by `created_at` asc
-- [ ] `GET /projects/{project_id}/locations` — Primary + sub-locations with `is_primary`, `is_verified`
-- [ ] `GET /projects/{project_id}/risk-flags` — Active flags (`code`, `label`, `level`, `description`)
+- [x] `GET /projects/{project_id}/tenders` — History ordered by `created_at` asc
+- [x] `GET /projects/{project_id}/locations` — Primary + sub-locations with `is_primary`, `is_verified`
+- [x] `GET /projects/{project_id}/risk-flags` — Active flags (`code`, `label`, `level`, `description`)
 - [ ] `GET /projects/{project_id}/reports` — Submitted reports only (filter: `status`, `category`, `author`, pagination)
 - [ ] `GET /projects/{project_id}/location-claims` — Claims (filter: `status`, `author`, pagination)
 - [ ] `GET /projects/{project_id}/verification-items` — Queue items for project (filter: `status`, `item_type`, pagination)
@@ -88,11 +88,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 
 ## 📍 Location Claims
 
-- [ ] `POST /projects/{project_id}/location-claims` — Create claim (`status: menunggu`); validate `address_line` required unless precision `kecamatan`/`desa/kelurahan`; compute `distance_from_project`; enqueue as `klaim_lokasi`; 409 if project already has accepted claim
-- [ ] `GET /location-claims/{claim_id}` — Full claim detail
-- [ ] `GET /location-claims/{claim_id}/media` — Return claim photo (max 1)
-- [ ] `POST /location-claims/{claim_id}/media` — Author upload (1 photo, 5MB, JPEG/PNG/WebP)
-- [ ] `DELETE /location-claims/{claim_id}/media/{media_id}` — Author delete while `menunggu`
+- [x] `POST /projects/{project_id}/location-claims` — Create claim (`status: menunggu`); validate `address_line` required unless precision `kecamatan`/`desa/kelurahan`; compute `distance_from_project`; enqueue as `klaim_lokasi`; 409 if project already has accepted claim
+- [x] `GET /location-claims/{claim_id}` — Full claim detail
+- [x] `GET /location-claims/{claim_id}/media` — Return claim photo (max 1)
+- [x] `POST /location-claims/{claim_id}/media` — Author upload (1 photo, 5MB, JPEG/PNG/WebP)
+- [x] `DELETE /location-claims/{claim_id}/media/{media_id}` — Author delete while `menunggu`
 
 ---
 
