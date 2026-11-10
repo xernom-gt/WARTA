@@ -1,39 +1,18 @@
 import { api } from './api';
+import type { components } from '../types/api';
 
-export interface AuthUser {
-  id: string;
-  display_name: string;
-  email: string;
-  email_verified_at?: string | null;
-}
+export type LoginRequest = components['schemas']['LoginRequest'];
+export type RegisterRequest = components['schemas']['RegisterRequest'];
+export type AuthToken = components['schemas']['AuthToken'];
+export type UserPrivate = components['schemas']['UserPrivate'];
 
-export interface UserPrivate extends AuthUser {
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  user: AuthUser;
-}
-
-export interface RegisterRequest {
-  display_name: string;
-  email: string;
-  password: string;
+export interface ApiResponse<T> {
+  data: T;
 }
 
 export const authService = {
-  async login(payload: LoginRequest): Promise<LoginResponse> {
-    const { data } = await api.post<{ data: LoginResponse }>('/auth/login', payload);
+  async login(payload: LoginRequest): Promise<AuthToken> {
+    const { data } = await api.post<ApiResponse<AuthToken>>('/auth/login', payload);
     if (data?.data?.access_token) {
       localStorage.setItem('token', data.data.access_token);
     }
@@ -41,12 +20,12 @@ export const authService = {
   },
 
   async register(payload: RegisterRequest): Promise<UserPrivate> {
-    const { data } = await api.post<{ data: UserPrivate }>('/auth/register', payload);
+    const { data } = await api.post<ApiResponse<UserPrivate>>('/auth/register', payload);
     return data.data;
   },
 
   async getMe(): Promise<UserPrivate> {
-    const { data } = await api.get<{ data: UserPrivate }>('/auth/me');
+    const { data } = await api.get<ApiResponse<UserPrivate>>('/auth/me');
     return data.data;
   },
 

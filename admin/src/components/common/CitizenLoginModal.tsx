@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, Eye, EyeOff, Lock, Mail, UserRound, X } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
-import { authService } from '../../services/auth';
+import { authService, type UserPrivate } from '../../services/auth';
 
 export default function CitizenLoginModal() {
   const { loginOpen, setLoginOpen, login } = useWarta();
@@ -47,19 +47,19 @@ export default function CitizenLoginModal() {
       }
 
       // Auto-login after registration or direct login
-      const res = await authService.login({
+      const authToken = await authService.login({
         email,
         password,
       });
 
-      const me = await authService.getMe().catch(() => ({
-        id: res.user.id,
-        display_name: res.user.display_name,
-        email: res.user.email,
-        email_verified_at: res.user.email_verified_at,
+      const me = await authService.getMe().catch((): UserPrivate => ({
+        id: authToken.user.id,
+        display_name: authToken.user.display_name,
+        email: authToken.user.email,
+        email_verified_at: authToken.user.email_verified_at ?? null,
         is_active: true,
-        created_at: '',
-        updated_at: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }));
 
       login(me.display_name, me);

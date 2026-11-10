@@ -29,7 +29,7 @@ Notes for AI agents working in this repo. Trust code + config over prose (see "S
 ## Frontend state
 
 - Both apps currently render local mock data from `src/data/wartaData.ts`, hidden by default. Toggle with `VITE_SAMPLE_DATA=1` in the app's `.env.local` or `?sample=1` URL param.
-- The axios client (`src/services/api.ts`, base URL from `VITE_API_URL`, default `http://localhost:3000/api`) exists but no component calls it yet — until endpoints land, UI work is against the mocks, not the live API.
+- The axios client (`src/services/api.ts`, base URL from `VITE_API_URL`, default `http://localhost:3000/api/v1`) is configured with Bearer token interceptor. Auth endpoints (login/register/logout/getMe/resend) are integrated and called from CitizenLoginModal and WartaContext in both apps.
 
 ## Git & PR
 

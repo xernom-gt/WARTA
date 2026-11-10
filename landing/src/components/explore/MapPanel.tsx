@@ -6,7 +6,7 @@ import MapFloatingSheet from '../map/MapFloatingSheet';
 interface Props {
   projects: ProjectPackage[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   onOpen: (id: string) => void;
   compact: boolean;
   showDistance: boolean;

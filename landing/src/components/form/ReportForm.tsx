@@ -1,11 +1,10 @@
-import { ArrowLeft, Camera } from 'lucide-react';
-import type { ChangeEvent, FormEvent } from 'react';
+import { ArrowLeft, CloudOff, Send } from 'lucide-react';
+import type { FormEvent } from 'react';
 import { REPORT_CATEGORY_LABELS, SAMPLE_DATA, getProject } from '../../data/wartaData';
 import type { ReportCategory } from '../../types/warta';
-import { INPUT_CLASS, MAX_NARRATIVE, MIN_NARRATIVE, SAMPLE_PHOTOS } from '../../constants/formConfig';
-import { PRECISION_LEVELS } from '../../constants/formConfig';
+import { INPUT_CLASS, MAX_NARRATIVE, MIN_NARRATIVE } from '../../constants/formConfig';
 import MiniPinMap from '../map/MiniPinMap';
-import ExifCheckBadge, { EXIF_INVALID_TEXT, EXIF_VALID_TEXT } from '../common/ExifCheckBadge';
+import ExifCheckBadge from '../common/ExifCheckBadge';
 import ErrorAlert from '../form/ErrorAlert';
 import PhotoUpload from '../form/PhotoUpload';
 
@@ -56,7 +55,6 @@ export default function ReportForm({
 
   const addSamplePhoto = () => {
     if (photos.length >= 4) return;
-    const nextUrl = SAMPLE_PHOTOS[photos.length % SAMPLE_PHOTOS.length];
     onPhotosAdd(null);
     // Simulates adding photo by directly updating state (caller handles setState)
   };
