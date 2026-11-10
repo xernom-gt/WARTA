@@ -51,6 +51,20 @@ const STATUSES: { value: 'Semua' | ReportStatus; label: string }[] = [
 
 const YEARS = ['Semua', '2022', '2023', '2024', '2025', '2026', '2027'];
 
+const PAGU_RANGES = [
+  { value: 'Semua', label: 'Semua pagu anggaran' },
+  { value: 'under-10b', label: '< Rp10 Miliar' },
+  { value: '10b-50b', label: 'Rp10 M – Rp50 Miliar' },
+  { value: 'over-50b', label: '> Rp50 Miliar' },
+];
+
+const SORTS = [
+  { value: '-created_at', label: 'Terbaru' },
+  { value: '-pagu_amount', label: 'Pagu Tertinggi' },
+  { value: 'pagu_amount', label: 'Pagu Terendah' },
+  { value: 'title', label: 'Nama Paket (A-Z)' },
+];
+
 const PRECISIONS: { value: 'Semua' | PrecisionLevel; label: string }[] = [
   { value: 'Semua', label: 'Semua tingkat lokasi' },
   { value: 'kabupaten/kota', label: 'Tingkat Kabupaten/Kota' },
@@ -78,6 +92,8 @@ export default function ExploreProjectsView() {
   const [status, setStatus] = useState<'Semua' | ReportStatus>('Semua');
   const [year, setYear] = useState('Semua');
   const [precision, setPrecision] = useState<'Semua' | PrecisionLevel>('Semua');
+  const [paguRange, setPaguRange] = useState('Semua');
+  const [sort, setSort] = useState('-created_at');
   const [onlyRetender, setOnlyRetender] = useState(false);
 
   // API State
@@ -92,8 +108,17 @@ export default function ExploreProjectsView() {
     setStatus('Semua');
     setYear('Semua');
     setPrecision('Semua');
+    setPaguRange('Semua');
+    setSort('-created_at');
     setOnlyRetender(false);
     if (mapCondition === 'filter-empty') setMapCondition('normal');
+  };
+
+  const matchesPagu = (paguRaw: number, range: string) => {
+    if (range === 'under-10b') return paguRaw < 10_000_000_000;
+    if (range === '10b-50b') return paguRaw >= 10_000_000_000 && paguRaw <= 50_000_000_000;
+    if (range === 'over-50b') return paguRaw > 50_000_000_000;
+    return true;
   };
 
   // Fetch live API data with debounce and cancellation
@@ -111,6 +136,7 @@ export default function ExploreProjectsView() {
         if (!Number.isNaN(parsedYear)) params.year = parsedYear;
       }
       if (precision !== 'Semua') params.precision_level = precision;
+      if (sort) params.sort = sort;
       if (onlyRetender) params.is_retender = true;
 
       setLoadingApi(true);
@@ -156,13 +182,13 @@ export default function ExploreProjectsView() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q, city, category, status, year, precision, onlyRetender]);
+  }, [q, city, category, status, year, precision, sort, onlyRetender]);
 
   // Local fallback filter if API is not yet active
   const fallbackList = useMemo(() => {
     if (mapCondition === 'filter-empty') return [];
     const term = q.trim().toLowerCase();
-    return WARTA_PROJECTS.filter((p) => {
+    const filtered = WARTA_PROJECTS.filter((p) => {
       const matchQ =
         !term ||
         [p.title, p.spseCode, p.satker, p.locationDesc, p.city].some((v) =>
@@ -175,15 +201,22 @@ export default function ExploreProjectsView() {
         (status === 'Semua' || p.status === status) &&
         (year === 'Semua' || p.years.includes(year)) &&
         (precision === 'Semua' || p.precisionLevel === precision) &&
-        (!onlyRetender || p.isRetender)
+        (!onlyRetender || p.isRetender) &&
+        matchesPagu(p.paguRaw, paguRange)
       );
     });
-  }, [q, city, category, status, year, precision, onlyRetender, mapCondition]);
+    if (sort === '-pagu_amount') return [...filtered].sort((a, b) => b.paguRaw - a.paguRaw);
+    if (sort === 'pagu_amount') return [...filtered].sort((a, b) => a.paguRaw - b.paguRaw);
+    if (sort === 'title') return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+    return filtered;
+  }, [q, city, category, status, year, precision, onlyRetender, paguRange, sort, mapCondition]);
 
   const list = useMemo(() => {
     if (mapCondition === 'filter-empty') return [];
-    return apiProjects !== null ? apiProjects : fallbackList;
-  }, [apiProjects, fallbackList, mapCondition]);
+    const base = apiProjects !== null ? apiProjects : fallbackList;
+    if (paguRange === 'Semua') return base;
+    return base.filter((p) => matchesPagu(p.paguRaw, paguRange));
+  }, [apiProjects, fallbackList, mapCondition, paguRange]);
 
   const selected = list.find((p) => p.id === selectedProjectId) ?? null;
   const gpsDenied = mapCondition === 'gps-denied';
@@ -315,6 +348,34 @@ export default function ExploreProjectsView() {
               {PRECISIONS.map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              id="filter-pagu"
+              aria-label="Filter pagu anggaran"
+              value={paguRange}
+              onChange={(e) => setPaguRange(e.target.value)}
+              className={selectClass}
+            >
+              {PAGU_RANGES.map((pr) => (
+                <option key={pr.value} value={pr.value}>
+                  {pr.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              id="filter-sort"
+              aria-label="Urutkan proyek"
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className={selectClass}
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  Urut: {s.label}
                 </option>
               ))}
             </select>
