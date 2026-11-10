@@ -183,7 +183,12 @@ function ItemDetailModal({
                     ? 'Detail Klaim Lokasi'
                     : 'Detail Riwayat Suara'}
               </span>
-              {status && <StatusBadge status={status} size="sm" />}
+              {status && (
+                <StatusBadge
+                  status={status as React.ComponentProps<typeof StatusBadge>['status']}
+                  size="sm"
+                />
+              )}
             </div>
             <h2 id="profile-item-modal-title" className="text-lg leading-snug font-extrabold text-slate-900 sm:text-xl">
               {projectTitle}
