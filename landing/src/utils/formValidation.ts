@@ -1,4 +1,4 @@
-import { MIN_NARRATIVE, MAX_NARRATIVE } from '../constants/formConfig';
+import { MIN_NARRATIVE } from '../constants/formConfig';
 
 export const validateReportForm = (
   category: string | null,

@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-import { useMemo, useState } from 'react';
-import { Camera, MessageSquareText } from 'lucide-react';
-import { useWarta } from '../../context/WartaContext';
-import { DATASET_SUMMARY, WARTA_PROJECTS } from '../../data/wartaData';
-import type { PrecisionLevel, ReportStatus } from '../../types/warta';
-import FilterPanel from '../explore/FilterPanel';
-import ProjectCatalog from '../explore/ProjectCatalog';
-import MapPanel from '../explore/MapPanel';
-=======
 import { useEffect, useMemo, useState } from 'react';
 import {
   Camera,
@@ -83,7 +73,6 @@ const PRECISIONS: { value: 'Semua' | PrecisionLevel; label: string }[] = [
   { value: 'alamat/ruas', label: 'Alamat / Ruas Jalan' },
   { value: 'titik', label: 'Titik Koordinat Pasti' },
 ];
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
 
 export default function ExploreProjectsView() {
   const {
@@ -107,16 +96,12 @@ export default function ExploreProjectsView() {
   const [sort, setSort] = useState('-created_at');
   const [onlyRetender, setOnlyRetender] = useState(false);
 
-<<<<<<< HEAD
-  const handleResetFilters = () => {
-=======
   // API State
   const [apiProjects, setApiProjects] = useState<ProjectPackage[] | null>(null);
   const [totalProjects, setTotalProjects] = useState<number>(WARTA_PROJECTS.length);
   const [loadingApi, setLoadingApi] = useState<boolean>(false);
 
   const resetFilters = () => {
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
     setQ('');
     setCity('Semua');
     setCategory('Semua');
@@ -233,13 +218,17 @@ export default function ExploreProjectsView() {
     return base.filter((p) => matchesPagu(p.paguRaw, paguRange));
   }, [apiProjects, fallbackList, mapCondition, paguRange]);
 
+  const selected = list.find((p) => p.id === selectedProjectId) ?? null;
   const gpsDenied = mapCondition === 'gps-denied';
   const tileError = mapCondition === 'tile-error';
   const loading = mapCondition === 'loading' || loadingApi;
 
+  const selectClass =
+    'rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20';
+
   return (
     <div className="mx-auto w-full max-w-7xl flex-1 space-y-8 px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
-      {/* Header */}
+      {/* Header Halaman Terbuka */}
       <section className="flex flex-col justify-between gap-6 border-b border-slate-200 pb-8 lg:flex-row lg:items-end">
         <div className="max-w-2xl space-y-2.5">
           <p className="text-sm font-semibold tracking-wide text-brand uppercase">
@@ -250,8 +239,7 @@ export default function ExploreProjectsView() {
           </h1>
           <p className="text-base leading-relaxed text-slate-600">
             Menampilkan {DATASET_SUMMARY.uniqueProjects} paket proyek unik (termasuk{' '}
-            {DATASET_SUMMARY.precisionBreakdown.kabupatenKota} paket yang lokasinya baru tercatat
-            tingkat kota di SPSE).
+            {DATASET_SUMMARY.precisionBreakdown.kabupatenKota} paket yang lokasinya baru tercatat tingkat kota di SPSE).
           </p>
         </div>
 
@@ -268,40 +256,29 @@ export default function ExploreProjectsView() {
             onClick={() => navigate('aduan')}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-base font-semibold text-slate-800 transition hover:bg-slate-50"
           >
-            <MessageSquareText className="size-5 text-brand" aria-hidden="true" /> Feed Aduan (
-            {queue.length})
+            <MessageSquareText className="size-5 text-brand" aria-hidden="true" /> Feed Aduan ({queue.length})
           </button>
         </div>
       </section>
 
-      {/* Filters */}
-      <FilterPanel
-        query={q}
-        onQueryChange={setQ}
-        city={city}
-        onCityChange={setCity}
-        category={category}
-        onCategoryChange={setCategory}
-        status={status}
-        onStatusChange={setStatus}
-        year={year}
-        onYearChange={setYear}
-        precision={precision}
-        onPrecisionChange={setPrecision}
-        onlyRetender={onlyRetender}
-        onRetenderChange={setOnlyRetender}
-        onReset={handleResetFilters}
-        resultsCount={list.length}
-        totalCount={WARTA_PROJECTS.length}
-      />
+      {/* Filter Katalog */}
+      <section aria-label="Filter paket proyek" className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+          <div className="relative md:col-span-5">
+            <Search
+              className="pointer-events-none absolute top-3.5 left-4 size-4 text-slate-500"
+              aria-hidden="true"
+            />
+            <input
+              id="search-input"
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Cari nama proyek, kode tender SPSE, satker, atau kelurahan..."
+              className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pr-4 pl-11 text-sm text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+            />
+          </div>
 
-<<<<<<< HEAD
-      {/* Layout: Catalog (58%) + Map (42%) */}
-      <div className="flex flex-col gap-8 lg:flex-row">
-        <section className="space-y-6 lg:w-[58%]" aria-label="Katalog paket proyek">
-          <div className="flex items-center justify-between">
-            <div />
-=======
           <select
             id="filter-city"
             aria-label="Filter kota"
@@ -427,7 +404,6 @@ export default function ExploreProjectsView() {
             >
               <RotateCcw className="size-4" aria-hidden="true" /> Reset
             </button>
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
             <button
               type="button"
               id="toggle-rupiah"
@@ -437,32 +413,127 @@ export default function ExploreProjectsView() {
               Anggaran: {compactRupiah ? 'Ringkas' : 'Lengkap'}
             </button>
           </div>
-          <ProjectCatalog
-            projects={list}
-            selectedId={selectedProjectId}
-            onSelect={selectProject}
-            onOpen={(id) => navigate('detail', id)}
-            onReport={(id) => navigate('lapor', id)}
-            compact={compactRupiah}
-            showDistance={!gpsDenied}
-            loading={loading}
-            onReset={handleResetFilters}
-          />
+        </div>
+      </section>
+
+      {/* Katalog Proyek (58%) & Peta Interaktif (42%) */}
+      <div className="flex flex-col gap-8 lg:flex-row">
+        <section className="space-y-6 lg:w-[58%]" aria-label="Katalog paket proyek">
+          {loading ? (
+            <div className="grid gap-6 sm:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6">
+                  <div className="shimmer h-5 w-24 rounded" />
+                  <div className="shimmer h-6 w-3/4 rounded" />
+                  <div className="shimmer h-4 w-1/3 rounded" />
+                  <div className="shimmer h-8 w-1/2 rounded" />
+                </div>
+              ))}
+            </div>
+          ) : list.length === 0 ? (
+            <div className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center">
+              <div className="mb-4 grid size-14 place-items-center rounded-full bg-slate-100">
+                <SearchX className="size-7 text-slate-500" aria-hidden="true" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900">Tidak ada paket proyek yang cocok</h2>
+              <p className="mt-1.5 mb-6 max-w-sm text-base text-slate-600">
+                Coba ubah kata kunci pencarian atau setel ulang filter kota, kategori, maupun tingkat presisi lokasi.
+              </p>
+              <button
+                type="button"
+                id="empty-reset"
+                onClick={resetFilters}
+                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+              >
+                Reset Filter
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-2">
+              {list.map((p) => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  compact={compactRupiah}
+                  showDistance={!gpsDenied}
+                  selected={p.id === selectedProjectId}
+                  onSelect={() => selectProject(p.id)}
+                  onOpen={() => navigate('detail', p.id)}
+                  onReport={() => navigate('lapor', p.id)}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
+        {/* Kolom Peta */}
         <section className="lg:w-[42%]" aria-label="Peta proyek SPSE">
-          <MapPanel
-            projects={list}
-            selectedId={selectedProjectId}
-            onSelect={selectProject}
-            onOpen={(id) => navigate('detail', id)}
-            compact={compactRupiah}
-            showDistance={!gpsDenied}
-            gpsDenied={gpsDenied}
-            tileError={tileError}
-            loading={loading}
-            onRetry={() => setMapCondition('normal')}
-          />
+          <div className="relative h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-white lg:sticky lg:top-24 lg:h-[calc(100vh-8rem)]">
+            {tileError ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-50 p-6 text-center">
+                <MapPinOff className="size-10 text-bad-border" aria-hidden="true" />
+                <h2 className="text-lg font-bold text-slate-900">Peta gagal dimuat</h2>
+                <p className="max-w-xs text-base text-slate-600">
+                  Koneksi ke layanan peta terputus. Anda tetap dapat memilih paket proyek dari daftar di samping.
+                </p>
+                <button
+                  type="button"
+                  id="map-retry"
+                  onClick={() => setMapCondition('normal')}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Muat ulang peta
+                </button>
+              </div>
+            ) : (
+              <>
+                <JakartaSvgMap
+                  projects={list}
+                  selectedId={selectedProjectId}
+                  onSelect={selectProject}
+                  gpsDenied={gpsDenied}
+                  className={loading ? 'animate-pulse opacity-60' : ''}
+                />
+                <div className="absolute top-3 right-3 space-y-1.5 rounded-xl border border-slate-200 bg-white/95 p-3 text-xs text-slate-700 shadow-xs backdrop-blur-xs">
+                  <p className="flex items-center gap-1.5 font-semibold text-slate-900">
+                    <Layers className="size-3.5 text-brand" aria-hidden="true" /> Keterangan pin
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <svg width="14" height="14" aria-hidden="true">
+                      <circle
+                        cx="7"
+                        cy="7"
+                        r="6"
+                        fill="none"
+                        stroke="#1f3b57"
+                        strokeDasharray="3 2"
+                        strokeWidth="1.5"
+                      />
+                    </svg>
+                    Area perkiraan (tingkat kota/kelurahan)
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <svg width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M7 13 C3 8 2 6 2 5 A5 5 0 1 1 12 5 C12 6 11 8 7 13Z"
+                        fill="#1f3b57"
+                      />
+                    </svg>
+                    Titik lokasi terverifikasi
+                  </p>
+                </div>
+                {selected && (
+                  <MapFloatingSheet
+                    project={selected}
+                    compact={compactRupiah}
+                    showDistance={!gpsDenied}
+                    onOpen={() => navigate('detail', selected.id)}
+                    onClose={() => selectProject(null)}
+                  />
+                )}
+              </>
+            )}
+          </div>
         </section>
       </div>
     </div>

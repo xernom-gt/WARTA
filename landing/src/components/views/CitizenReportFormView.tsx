@@ -1,15 +1,4 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
-<<<<<<< HEAD
-import { useWarta } from '../../context/WartaContext';
-import { SAMPLE_DATA, WARTA_PROJECTS, getProject } from '../../data/wartaData';
-import type { ReportCategory } from '../../types/warta';
-import { buildReport, buildVerificationItem, buildClaim, buildClaimAddress } from '../../utils/formBuilders';
-import { validateReportForm, validateClaimForm } from '../../utils/formValidation';
-import { SAMPLE_PHOTOS, MAX_PHOTOS } from '../../constants/formConfig';
-import FormSuccess from '../form/FormSuccess';
-import ReportForm from '../form/ReportForm';
-import ClaimForm from '../form/ClaimForm';
-=======
 import {
   ArrowLeft,
   Camera,
@@ -49,7 +38,6 @@ const PRECISION_LEVELS: { v: PrecisionLevel; l: string }[] = [
   { v: 'desa/kelurahan', l: 'Kelurahan / Desa' },
   { v: 'kecamatan', l: 'Kecamatan' },
 ];
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
 
 export interface PhotoAttachment {
   name: string;
@@ -74,15 +62,15 @@ export default function CitizenReportFormView() {
 
   const editingDraft = myReports.find((r) => r.id === editingDraftId) ?? null;
   const currentProjectId = editingDraft?.projectId ?? selectedProjectId ?? WARTA_PROJECTS[0].id;
+  const p = getProject(currentProjectId);
 
   const formMode = activeScreen === 'klaim' ? 'klaim' : 'lapor';
-  const [doneState, setDoneState] = useState<'draft' | 'sent' | 'claim-sent' | null>(null);
 
-  // Report form state
+  // State Form Laporan Kondisi
   const [category, setCategory] = useState<ReportCategory | ''>(editingDraft?.category ?? '');
   const [narrative, setNarrative] = useState(editingDraft?.narrative ?? '');
   const [proposedAddress, setProposedAddress] = useState(
-    editingDraft?.proposedAddress ?? getProject(currentProjectId).locationDesc,
+    editingDraft?.proposedAddress ?? p.locationDesc,
   );
   const [photos, setPhotos] = useState<PhotoAttachment[]>(
     editingDraft?.photoUrls?.map((u, idx) => ({ name: `foto-${idx + 1}.jpg`, url: u })) ?? [],
@@ -90,15 +78,12 @@ export default function CitizenReportFormView() {
   const [exifValid, setExifValid] = useState<boolean | undefined>(editingDraft?.exifValid);
   const [pin, setPin] = useState({ x: 52, y: 48 });
   const [reportErrors, setReportErrors] = useState<string[]>([]);
-<<<<<<< HEAD
-=======
   const [doneState, setDoneState] = useState<'draft' | 'sent' | 'claim-sent' | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState<string>('');
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
 
-  // Claim form state
-  const [level, setLevel] = useState('alamat/ruas');
+  // State Form Klaim Lokasi
+  const [level, setLevel] = useState<PrecisionLevel>('alamat/ruas');
   const [claimAddress, setClaimAddress] = useState('');
   const [kelurahan, setKelurahan] = useState('');
   const [kecamatan, setKecamatan] = useState('');
@@ -106,48 +91,14 @@ export default function CitizenReportFormView() {
   const [claimPhoto, setClaimPhoto] = useState<string | null>(null);
   const [claimErrors, setClaimErrors] = useState<string[]>([]);
 
-  const handleProjectChange = (nextId: string) => {
-    selectProject(nextId);
+  const onProjectChange = (nextProjectId: string) => {
+    selectProject(nextProjectId);
+    const nextProj = getProject(nextProjectId);
     if (!editingDraft) {
-      setProposedAddress(getProject(nextId).locationDesc);
+      setProposedAddress(nextProj.locationDesc);
     }
   };
 
-<<<<<<< HEAD
-  const handleAddPhotos = (files: FileList | null) => {
-    if (!files) return;
-    const newPhotos = Array.from(files).slice(0, MAX_PHOTOS - photos.length);
-    setPhotos((prev) => [
-      ...prev,
-      ...newPhotos.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
-    ]);
-  };
-
-  const handleAddSamplePhoto = () => {
-    if (photos.length >= MAX_PHOTOS) return;
-    const nextUrl = SAMPLE_PHOTOS[photos.length % SAMPLE_PHOTOS.length];
-    setPhotos((prev) => [...prev, { name: `bukti-lapangan-${prev.length + 1}.jpg`, url: nextUrl }]);
-  };
-
-  const handleSaveDraft = () => {
-    const draftObj = buildReport({
-      id: editingDraft?.id,
-      projectId: currentProjectId,
-      projectTitle: getProject(currentProjectId).title,
-      spseCode: getProject(currentProjectId).spseCode,
-      category,
-      narrative,
-      proposedAddress,
-      photoUrls: photos.map((ph) => ph.url),
-      exifValid,
-      status: 'draft',
-    });
-
-    if (editingDraft) {
-      updateDraftReport(editingDraft.id, draftObj);
-    } else {
-      addReport(draftObj);
-=======
   const onReportFiles = (e: ChangeEvent<HTMLInputElement>) => {
     const rawFiles = Array.from(e.target.files ?? []);
     e.target.value = '';
@@ -275,7 +226,6 @@ export default function CitizenReportFormView() {
     } finally {
       setSubmitting(false);
       setSubmitStep('');
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
     }
   };
 
@@ -285,35 +235,21 @@ export default function CitizenReportFormView() {
       setLoginOpen(true);
       return;
     }
-
-    const errs = validateReportForm(category, proposedAddress, narrative, photos.length);
+    const errs: string[] = [];
+    if (!category) errs.push('Pilih salah satu kategori kondisi lapangan.');
+    if (!proposedAddress.trim()) errs.push('Isi alamat atau titik lokasi pengamatan.');
+    if (narrative.trim().length < MIN_NARRATIVE)
+      errs.push(`Deskripsi pengamatan minimal ${MIN_NARRATIVE} karakter.`);
+    if (photos.length === 0) errs.push('Unggah minimal 1 foto bukti lapangan (maksimal 4 foto).');
     setReportErrors(errs);
     if (errs.length > 0) return;
 
-<<<<<<< HEAD
-    const p = getProject(currentProjectId);
-    const submitted = buildReport({
-      id: editingDraft?.id,
-      projectId: currentProjectId,
-      projectTitle: p.title,
-      spseCode: p.spseCode,
-      category: category as ReportCategory,
-      narrative,
-      proposedAddress,
-      photoUrls: photos.map((ph) => ph.url),
-      exifValid,
-      status: 'menunggu',
-    });
-
-    const queueItem = buildVerificationItem({
-=======
     setSubmitting(true);
     setSubmitStep('Menyiapkan laporan...');
 
     const submitted = buildReport('menunggu');
     const queueItem: VerificationItem = {
       id: `ver-${Date.now()}`,
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
       projectId: p.id,
       projectTitle: p.title,
       spseCode: p.spseCode,
@@ -321,14 +257,28 @@ export default function CitizenReportFormView() {
       paguCompact: p.paguCompact,
       itemType: 'laporan_kondisi',
       category: submitted.category,
+      categoryLabel: REPORT_CATEGORY_LABELS[submitted.category],
       authorDisplayName: currentUser,
+      createdAt: 'Baru saja',
       exifValid,
+      exifNotice:
+        typeof exifValid === 'boolean'
+          ? exifValid
+            ? EXIF_VALID_TEXT
+            : EXIF_INVALID_TEXT
+          : undefined,
       narrative: submitted.narrative,
-      proposedAddress: submitted.proposedAddress,
+      proposedAddress: submitted.proposedAddress ?? p.locationDesc,
+      coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
       photoUrl: photos[0].url,
       photoUrls: photos.map((ph) => ph.url),
-      coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
-    });
+      votesAgree: 0,
+      votesDisagree: 0,
+      targetVotes: 3,
+      voters: [],
+      status: 'menunggu',
+      evidences: [],
+    };
 
     try {
       let reportId = editingDraft?.id;
@@ -411,39 +361,69 @@ export default function CitizenReportFormView() {
       setLoginOpen(true);
       return;
     }
-
-    const errs = validateClaimForm(level, claimAddress, kecamatan, claimPhoto);
+    const errs: string[] = [];
+    if (!claimAddress.trim() && level !== 'kecamatan' && level !== 'desa/kelurahan') {
+      errs.push('Isi alamat spesifik atau nama ruas jalan.');
+    }
+    if (!kecamatan.trim()) errs.push('Isi nama kecamatan.');
+    if (!claimPhoto) errs.push('Unggah 1 foto papan informasi proyek.');
     setClaimErrors(errs);
-    if (errs.length > 0) return;
+    if (errs.length > 0 || !claimPhoto) return;
 
-    const p = getProject(currentProjectId);
-    const proposed = buildClaimAddress(claimAddress, kelurahan, kecamatan, landmark);
+    const proposed = [
+      claimAddress.trim(),
+      kelurahan.trim() && `Kel. ${kelurahan.trim()}`,
+      `Kec. ${kecamatan.trim()}`,
+      landmark.trim() && `(dekat ${landmark.trim()})`,
+    ]
+      .filter(Boolean)
+      .join(', ');
 
-    const claim = buildClaim({
+    const claim: CitizenClaim = {
+      id: `clm-${Date.now()}`,
       projectId: p.id,
       projectTitle: p.title,
       spseCode: p.spseCode,
       proposedAddress: proposed,
       proposedPrecision: level,
-      photoUrl: claimPhoto!,
-    });
+      photoUrl: claimPhoto,
+      createdAt: 'Baru saja',
+      status: 'menunggu',
+    };
 
-    const item = buildVerificationItem({
+    const item: VerificationItem = {
+      id: `ver-${Date.now()}`,
       projectId: p.id,
       projectTitle: p.title,
       spseCode: p.spseCode,
       satker: p.satker,
       paguCompact: p.paguCompact,
       itemType: 'klaim_lokasi',
+      categoryLabel: 'Klaim Lokasi Kanonik',
       authorDisplayName: currentUser,
+      createdAt: 'Baru saja',
       exifValid,
-      narrative: landmark.trim() ? `Patokan lapangan: ${landmark.trim()}` : 'Usulan titik lokasi kanonik paket.',
+      exifNotice:
+        typeof exifValid === 'boolean'
+          ? exifValid
+            ? EXIF_VALID_TEXT
+            : EXIF_INVALID_TEXT
+          : undefined,
+      narrative: landmark.trim()
+        ? `Patokan lapangan: ${landmark.trim()}`
+        : 'Usulan titik lokasi kanonik paket.',
       proposedAddress: proposed,
       proposedPrecision: level,
-      photoUrl: claimPhoto!,
-      photoUrls: [claimPhoto!],
       coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
-    });
+      photoUrl: claimPhoto,
+      photoUrls: [claimPhoto],
+      votesAgree: 0,
+      votesDisagree: 0,
+      targetVotes: 3,
+      voters: [],
+      status: 'menunggu',
+      evidences: [],
+    };
 
     addClaim(claim, item);
     setDoneState('claim-sent');
@@ -451,70 +431,52 @@ export default function CitizenReportFormView() {
 
   if (doneState) {
     return (
-      <FormSuccess
-        type={doneState}
-        onMyReports={() => navigate('profil')}
-        onFeed={() => navigate('aduan')}
-      />
-    );
-  }
-
-  const containerClass = 'mx-auto w-full max-w-3xl flex-1 space-y-8 px-4 py-10 sm:px-6 sm:py-12';
-
-  if (formMode === 'lapor') {
-    return (
-      <div className={containerClass}>
-        <ReportForm
-          projectId={currentProjectId}
-          editingDraftId={editingDraftId}
-          category={category}
-          onCategoryChange={setCategory}
-          narrative={narrative}
-          onNarrativeChange={setNarrative}
-          proposedAddress={proposedAddress}
-          onAddressChange={setProposedAddress}
-          photos={photos}
-          onPhotosAdd={handleAddPhotos}
-          onPhotosRemove={(i) => setPhotos((ps) => ps.filter((_, j) => j !== i))}
-          exifValid={exifValid}
-          onExifChange={setExifValid}
-          pin={pin}
-          onPinChange={setPin}
-          errors={reportErrors}
-          onDraft={handleSaveDraft}
-          onSubmit={handleSubmitReport}
-          onBack={() => navigate('aduan')}
-        />
+      <div className="mx-auto w-full max-w-lg flex-1 px-4 py-14">
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+          <div
+            className={`mx-auto mb-4 grid size-14 place-items-center rounded-full ${
+              doneState === 'draft' ? 'bg-slate-100 text-slate-700' : 'bg-ok-bg text-ok-text'
+            }`}
+          >
+            {doneState === 'draft' ? (
+              <CloudOff className="size-7" aria-hidden="true" />
+            ) : (
+              <Send className="size-7" aria-hidden="true" />
+            )}
+          </div>
+          <h1 className="text-xl font-extrabold text-slate-900">
+            {doneState === 'draft'
+              ? 'Draf pengaduan disimpan'
+              : doneState === 'claim-sent'
+                ? 'Klaim lokasi berhasil dikirim'
+                : 'Pengaduan berhasil dikirim'}
+          </h1>
+          <p className="mt-2 mb-8 text-base leading-relaxed text-slate-600">
+            {doneState === 'draft'
+              ? 'Draf tersimpan di sesi ini. Anda dapat mengedit, melengkapi foto, atau mengirimnya kapan saja melalui menu Aduan Saya.'
+              : 'Kiriman Anda kini berstatus Menunggu Verifikasi dan dapat dilihat oleh warga lain maupun tim verifikasi.'}
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => navigate('profil')}
+              className="flex-1 rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              Buka Aduan Saya
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('aduan')}
+              className="flex-1 rounded-xl bg-brand py-3 text-sm font-semibold text-white hover:bg-brand-dark"
+            >
+              Lihat Feed Aduan Warga
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
-<<<<<<< HEAD
-  return (
-    <div className={containerClass}>
-      <ClaimForm
-        projectId={currentProjectId}
-        level={level}
-        onLevelChange={setLevel}
-        claimAddress={claimAddress}
-        onAddressChange={setClaimAddress}
-        kelurahan={kelurahan}
-        onKelurahanChange={setKelurahan}
-        kecamatan={kecamatan}
-        onKecamatanChange={setKecamatan}
-        landmark={landmark}
-        onLandmarkChange={setLandmark}
-        claimPhoto={claimPhoto}
-        onPhotoChange={setClaimPhoto}
-        exifValid={exifValid}
-        onExifChange={setExifValid}
-        pin={pin}
-        onPinChange={setPin}
-        errors={claimErrors}
-        onSubmit={handleSubmitClaim}
-        onBack={() => navigate('aduan')}
-      />
-=======
   const inputClass =
     'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:cursor-not-allowed';
 
@@ -990,7 +952,6 @@ export default function CitizenReportFormView() {
           </button>
         </form>
       )}
->>>>>>> 34ebef88de280ce5c1f941490220501f1f7a1167
     </div>
   );
 }

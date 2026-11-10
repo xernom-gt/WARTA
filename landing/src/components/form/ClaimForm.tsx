@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { getProject } from '../../data/wartaData';
 import { INPUT_CLASS, PRECISION_LEVELS } from '../../constants/formConfig';
 import MiniPinMap from '../map/MiniPinMap';
-import ExifCheckBadge, { EXIF_INVALID_TEXT, EXIF_VALID_TEXT } from '../common/ExifCheckBadge';
+import ExifCheckBadge from '../common/ExifCheckBadge';
 import ErrorAlert from '../form/ErrorAlert';
 
 interface Props {
