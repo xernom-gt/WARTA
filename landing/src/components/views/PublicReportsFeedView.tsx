@@ -10,6 +10,7 @@ import {
   Inbox,
   Map,
   MapPin,
+  MapPinCheck,
   RotateCcw,
   Search,
   ThumbsDown,
@@ -133,6 +134,14 @@ export default function PublicReportsFeedView() {
   const active = useMemo(
     () => (selectedReportId ? activeQueue.find((it) => it.id === selectedReportId) ?? null : null),
     [activeQueue, selectedReportId],
+  );
+
+  const activeProject = useMemo(
+    () =>
+      projectFilter !== 'semua'
+        ? WARTA_PROJECTS.find((p) => p.id === projectFilter) ?? null
+        : null,
+    [projectFilter],
   );
 
   useEffect(() => {
@@ -327,6 +336,32 @@ export default function PublicReportsFeedView() {
         </div>
       </section>
 
+      {/* Banner Konteks Filter Proyek */}
+      {activeProject && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-brand/5 p-4 text-sm text-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand text-white">
+              <MapPin className="size-5" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900">
+                Menampilkan aduan warga untuk paket: {activeProject.title}
+              </p>
+              <p className="text-xs text-slate-600">
+                Kode SPSE: #{activeProject.spseCode} · Satker: {activeProject.satker}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setProjectFilter('semua')}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Tampilkan Semua Proyek
+          </button>
+        </div>
+      )}
+
       {/* Bagian 3: Grid Kartu Aduan Bergaya Blog (Foto Utama + Teks Ringkas 2-3 Baris) */}
       <section aria-label="Daftar aduan warga">
         {feedState === 'loading' ? (
@@ -425,14 +460,40 @@ export default function PublicReportsFeedView() {
                       <div className="absolute top-3 left-3">
                         <StatusBadge status={it.status} size="sm" />
                       </div>
+                      {it.distanceFromProject ? (
+                        <div className="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-xs">
+                          <MapPin className="size-3 text-brand-light" aria-hidden="true" />
+                          <span>{it.distanceFromProject}</span>
+                        </div>
+                      ) : it.exifValid ? (
+                        <div className="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-xs">
+                          <MapPinCheck className="size-3 text-emerald-400" aria-hidden="true" />
+                          <span>Foto di lokasi</span>
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Isi Kartu */}
                     <div className="flex flex-1 flex-col justify-between space-y-4 p-6">
                       <div className="space-y-2.5">
-                        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-brand">
-                          <span>{it.categoryLabel}</span>
-                          <span className="font-normal text-slate-500">{it.createdAt}</span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                              {it.categoryLabel}
+                            </span>
+                            {it.spseCode && (
+                              <span className="font-mono text-slate-500">#{it.spseCode}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {it.status === 'menunggu' && (
+                              <span className="inline-flex items-center gap-1 font-medium text-amber-700">
+                                <Users className="size-3" aria-hidden="true" />
+                                {it.votesAgree}/{it.targetVotes} suara
+                              </span>
+                            )}
+                            <span className="text-slate-500">{it.createdAt}</span>
+                          </div>
                         </div>
 
                         <h2 className="text-lg font-bold leading-snug text-slate-900 group-hover:text-brand">
