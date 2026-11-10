@@ -163,8 +163,9 @@ export default function ExploreProjectsView() {
           const mapped = projectRes.value.data.map((p) =>
             toProjectPackage(p, pinCoordsMap.get(p.id)),
           );
-          setApiProjects(mapped);
-          setTotalProjects(projectRes.value.meta.total);
+          // Jika DB backend belum memiliki data proyek (tabel kosong), gunakan fallback sample data agar peta tidak kosong
+          setApiProjects(mapped.length > 0 ? mapped : null);
+          setTotalProjects(mapped.length > 0 ? projectRes.value.meta.total : WARTA_PROJECTS.length);
         } else {
           // If API fails or is offline, fallback to null (activates mock fallback)
           setApiProjects(null);
