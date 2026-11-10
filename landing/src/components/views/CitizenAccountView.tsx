@@ -13,6 +13,7 @@ import {
   LogOut,
   MailWarning,
   MapPin,
+  MapPinCheck,
   Plus,
   ThumbsDown,
   ThumbsUp,
@@ -506,10 +507,50 @@ export default function CitizenAccountView() {
                 </div>
 
                 <p className="mt-3 text-base leading-relaxed text-slate-700">{r.narrative}</p>
-                {r.proposedAddress && (
-                  <p className="mt-2 text-sm text-slate-600">
-                    Lokasi pengamatan: {r.proposedAddress}
-                  </p>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                  {r.proposedAddress && (
+                    <span className="flex items-center gap-1.5 truncate">
+                      <MapPin className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+                      <span>{r.proposedAddress}</span>
+                    </span>
+                  )}
+                  {r.distanceFromProject && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                      <MapPinCheck className="size-3.5 text-brand" aria-hidden="true" />
+                      {r.distanceFromProject}
+                    </span>
+                  )}
+                  {typeof r.exifValid === 'boolean' && (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        r.exifValid
+                          ? 'bg-ok-bg text-ok-text'
+                          : 'bg-wait-bg text-wait-text'
+                      }`}
+                    >
+                      {r.exifValid ? 'Geotag Cocok' : 'EXIF Tidak Cocok'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Galeri Pratinjau Foto Bukti Lapangan */}
+                {r.photoUrls && r.photoUrls.length > 0 && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2.5">
+                    {r.photoUrls.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className="relative size-16 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 sm:size-20"
+                      >
+                        <img
+                          src={url}
+                          alt={`Bukti lapangan ${idx + 1}`}
+                          className="size-full object-cover"
+                          loading="lazy"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
 
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
