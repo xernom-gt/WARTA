@@ -184,8 +184,8 @@ func TestLocationClaimMedia_OnePhotoRuleAndDeletion(t *testing.T) {
 	// 1. Upload photo as author
 	bodyBuf := &bytes.Buffer{}
 	mpWriter := multipart.NewWriter(bodyBuf)
-	part, _ := mpWriter.CreateFormFile("file", "board.jpg")
-	part.Write([]byte("fake-jpeg-content"))
+	part, _ := mpWriter.CreateFormFile("file", "board.png")
+	part.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0x00, 0x00, 0x00, 0x0D, 'I', 'H', 'D', 'R'})
 	mpWriter.Close()
 
 	reqUpload := httptest.NewRequest(http.MethodPost, "/api/v1/location-claims/"+claimID+"/media", bodyBuf)
@@ -211,8 +211,8 @@ func TestLocationClaimMedia_OnePhotoRuleAndDeletion(t *testing.T) {
 	// 2. Second photo should return 409 (One-photo rule)
 	bodyBuf2 := &bytes.Buffer{}
 	mpWriter2 := multipart.NewWriter(bodyBuf2)
-	part2, _ := mpWriter2.CreateFormFile("file", "board2.jpg")
-	part2.Write([]byte("fake-jpeg-content-2"))
+	part2, _ := mpWriter2.CreateFormFile("file", "board2.png")
+	part2.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0x00, 0x00, 0x00, 0x0D, 'I', 'H', 'D', 'R'})
 	mpWriter2.Close()
 
 	reqUpload2 := httptest.NewRequest(http.MethodPost, "/api/v1/location-claims/"+claimID+"/media", bodyBuf2)

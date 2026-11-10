@@ -48,6 +48,16 @@ type Config struct {
 	// mailed link is BASE?token=<raw> (§6.20).
 	MailVerifyBaseURL string
 
+	// Object storage (S3/R2/MinIO) (§11.1).
+	StorageDriver    string
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	S3AccessKeyID    string
+	S3SecretKey      string
+	S3PublicURL      string
+	S3ForcePathStyle bool
+
 	// Seed toggles dev seed data when the users table is empty.
 	Seed bool
 
@@ -107,6 +117,14 @@ func Load() (Config, error) {
 		SMTPPort:          int(smtpPort),
 		MailFrom:          value("MAIL_FROM", defaultMailFrom),
 		MailVerifyBaseURL: value("MAIL_VERIFY_BASE_URL", defaultVerifyBaseURL),
+		StorageDriver:    value("STORAGE_DRIVER", "memory"),
+		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
+		S3Region:         value("S3_REGION", "us-east-1"),
+		S3Bucket:         os.Getenv("S3_BUCKET"),
+		S3AccessKeyID:    os.Getenv("S3_ACCESS_KEY_ID"),
+		S3SecretKey:      os.Getenv("S3_SECRET_ACCESS_KEY"),
+		S3PublicURL:      os.Getenv("S3_PUBLIC_URL"),
+		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "1" || os.Getenv("S3_FORCE_PATH_STYLE") == "true",
 		Seed:              os.Getenv("WARTA_SEED") == "1",
 		Version:           "0.1.0",
 	}

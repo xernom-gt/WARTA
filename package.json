@@ -9,6 +9,11 @@
     "dev:landing": "pnpm --filter landing dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "preview": "pnpm -r preview"
+    "preview": "pnpm -r preview",
+    "codegen": "openapi-typescript docs/api/openapi.yaml -o admin/src/types/api.ts && openapi-typescript docs/api/openapi.yaml -o landing/src/types/api.ts",
+    "generate:types": "pnpm codegen"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
   }
 }

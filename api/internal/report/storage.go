@@ -13,6 +13,9 @@ type MediaStorage interface {
 
 	// Delete removes the object corresponding to fileURL from storage.
 	Delete(ctx context.Context, fileURL string) error
+
+	// Ping checks whether the underlying storage service is reachable (§14.5).
+	Ping(ctx context.Context) error
 }
 
 // MemoryMediaStorage is the default in-memory MediaStorage used in local dev
@@ -62,4 +65,9 @@ func (s *MemoryMediaStorage) Has(fileURL string) bool {
 	defer s.mu.Unlock()
 	_, ok := s.objects[fileURL]
 	return ok
+}
+
+// Ping for MemoryMediaStorage always reports healthy.
+func (s *MemoryMediaStorage) Ping(_ context.Context) error {
+	return nil
 }

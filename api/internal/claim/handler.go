@@ -3,22 +3,36 @@ package claim
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/middleware"
+	"warta.com/api/internal/report"
 )
 
 // Handler serves HTTP endpoints for location claims.
 type Handler struct {
-	store Store
+	store   Store
+	storage report.MediaStorage
 }
 
 // NewHandler creates a new Handler for location claims.
-func NewHandler(store Store) *Handler {
-	return &Handler{store: store}
+func NewHandler(store Store, storage ...report.MediaStorage) *Handler {
+	var st report.MediaStorage
+	if len(storage) > 0 && storage[0] != nil {
+		st = storage[0]
+	} else {
+		st = report.NewMemoryMediaStorage("https://storage.warta.id")
+	}
+	return &Handler{
+		store:   store,
+		storage: st,
+	}
 }
 
 // CreateClaim handles POST /projects/:project_id/location-claims (§6.16).
@@ -142,7 +156,7 @@ func (h *Handler) GetClaimMedia(c fiber.Ctx) error {
 	return httpx.Data(c, fiber.StatusOK, []MediaView{media.View()})
 }
 
-// UploadClaimMedia handles POST /location-claims/:claim_id/media.
+// UploadClaimMedia handles POST /location-claims/:claim_id/media (§6.18, §11.2).
 // One-photo rule and max 5MB. Author only.
 func (h *Handler) UploadClaimMedia(c fiber.Ctx) error {
 	claimID, ok := httpx.ValidateUUIDParam(c, "claim_id")
@@ -171,38 +185,60 @@ func (h *Handler) UploadClaimMedia(c fiber.Ctx) error {
 		})
 	}
 
-	// 5 MB limit
-	if fileHeader.Size > 5*1024*1024 {
-		return httpx.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large", "photo exceeds 5 MB limit")
+	// 5 MB limit (§11.2)
+	if fileHeader.Size > report.MaxPhotoBytes {
+		return httpx.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large", "Files must be 5 MB or smaller.")
 	}
 
-	contentType := fileHeader.Header.Get("Content-Type")
-	if contentType == "" || contentType == "application/octet-stream" {
-		lowerName := strings.ToLower(fileHeader.Filename)
-		if strings.HasSuffix(lowerName, ".jpg") || strings.HasSuffix(lowerName, ".jpeg") {
-			contentType = "image/jpeg"
-		} else if strings.HasSuffix(lowerName, ".png") {
-			contentType = "image/png"
-		} else if strings.HasSuffix(lowerName, ".webp") {
-			contentType = "image/webp"
-		}
+	f, err := fileHeader.Open()
+	if err != nil {
+		return err
 	}
-	switch contentType {
-	case "image/jpeg", "image/png", "image/webp":
-		// valid image
-	default:
-		return httpx.Error(c, fiber.StatusUnsupportedMediaType, "unsupported_media_type", "only JPEG, PNG, and WebP are supported")
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, report.MaxPhotoBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > report.MaxPhotoBytes {
+		return httpx.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large", "Files must be 5 MB or smaller.")
 	}
 
-	// Simulated storage URL
-	fileURL := "https://storage.warta.id/claims/" + claimID + "/" + fileHeader.Filename
+	mimeType, ext, ok := report.DetectImageMIME(data)
+	if !ok {
+		return httpx.Error(c, fiber.StatusUnsupportedMediaType, "unsupported_media_type", "Only image/jpeg, image/png, and image/webp are accepted.")
+	}
+
+	exifMeta := report.ExtractEXIF(data)
+	var isGeotagValid *bool
+	if claim.Latitude != nil && claim.Longitude != nil {
+		isGeotagValid = report.EvaluateGeotag(exifMeta, claim.Latitude, claim.Longitude)
+	} else {
+		isGeotagValid = report.EvaluateGeotag(exifMeta, nil, nil)
+	}
+
+	mediaID := uuid.NewString()
+	key := "claims/" + claimID + "/" + mediaID + ext
+	fileURL, err := h.storage.Put(c.Context(), key, mimeType, data)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to store media.")
+	}
+
 	media := &Media{
-		FileURL:   fileURL,
-		MediaType: contentType,
+		ID:            mediaID,
+		ClaimID:       claimID,
+		FileURL:       fileURL,
+		MediaType:     mimeType,
+		ExifLatitude:  exifMeta.Latitude,
+		ExifLongitude: exifMeta.Longitude,
+		ExifTakenAt:   exifMeta.TakenAt,
+		IsGeotagValid: isGeotagValid,
+		CreatedAt:     time.Now().UTC(),
 	}
 
 	createdMedia, err := h.store.AddMedia(c.Context(), claimID, media)
 	if err != nil {
+		_ = h.storage.Delete(c.Context(), fileURL)
 		if errors.Is(err, ErrPhotoLimitExceeded) {
 			return httpx.Error(c, fiber.StatusConflict, "photo_limit_reached", "Maximum of 1 photo per location claim reached.")
 		}
@@ -241,11 +277,26 @@ func (h *Handler) DeleteClaimMedia(c fiber.Ctx) error {
 		return httpx.Error(c, fiber.StatusConflict, "conflict", "Photo can only be deleted while claim is pending review.")
 	}
 
+	media, err := h.store.GetMedia(c.Context(), claimID)
+	if err != nil {
+		if errors.Is(err, ErrMediaNotFound) {
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Photo not found.")
+		}
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to check media.")
+	}
+	if media.ID != mediaID {
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Photo not found.")
+	}
+
 	if err := h.store.DeleteMedia(c.Context(), claimID, mediaID); err != nil {
 		if errors.Is(err, ErrMediaNotFound) {
 			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Photo not found.")
 		}
 		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to delete media.")
+	}
+
+	if h.storage != nil {
+		_ = h.storage.Delete(c.Context(), media.FileURL)
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)

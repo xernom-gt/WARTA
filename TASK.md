@@ -135,11 +135,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [x] Sort: `sort=field` / `sort=-field`
 
 ### File Upload
-- [ ] Object storage integration (S3/R2/MinIO)
-- [ ] Presigned URL or direct upload handler
-- [ ] EXIF extraction (lat, lng, taken_at, geotag validity)
-- [ ] MIME validation (JPEG, PNG, WebP only)
-- [ ] Size limit 5MB
+- [x] Object storage integration (S3/R2/MinIO)
+- [x] Presigned URL or direct upload handler
+- [x] EXIF extraction (lat, lng, taken_at, geotag validity)
+- [x] MIME validation (JPEG, PNG, WebP only)
+- [x] Size limit 5MB
 
 ### Email
 - [x] Verification email template (token link, 24hr expiry)
@@ -148,9 +148,9 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [ ] SMTP transport verified against a live/staging server (console transport covers local dev)
 
 ### OpenAPI Sync
-- [ ] Keep `docs/api/openapi.yaml` in sync with implementation
-- [ ] All `components/schemas` defined and referenced
-- [ ] Generate TypeScript types for frontends
+- [x] Keep `docs/api/openapi.yaml` in sync with implementation
+- [x] All `components/schemas` defined and referenced
+- [x] Generate TypeScript types for frontends
 
 ---
 
