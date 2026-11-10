@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   ActiveScreen,
   CitizenClaim,
@@ -19,6 +19,7 @@ import {
   INITIAL_VERIFICATION_QUEUE,
   INITIAL_VOTE_HISTORY,
 } from '../data/wartaData';
+import { authService } from '../services/auth';
 
 interface WartaState {
   currentUser: string | null;
@@ -46,11 +47,11 @@ interface WartaContextValue extends WartaState {
   startEditDraft: (reportId: string) => void;
   clearEditDraft: () => void;
   toggleRupiah: () => void;
-  login: (displayName: string, email?: string) => void;
-  register: (displayName: string, email: string) => void;
+  login: (email: string, password?: string) => Promise<void>;
+  register: (displayName: string, email: string, password?: string) => Promise<void>;
   updateDisplayName: (displayName: string) => void;
   verifyCurrentEmail: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   setLoginOpen: (o: boolean) => void;
   vote: (itemId: string, choice: VoteChoice) => void;
   canVote: (item: VerificationItem) => { allowed: boolean; reason?: string };
@@ -99,6 +100,39 @@ export function WartaProvider({ children }: { children: ReactNode }) {
 
   const patch = useCallback((p: Partial<WartaState>) => setState((s) => ({ ...s, ...p })), []);
 
+  // Restore authenticated session from localStorage JWT
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    authService
+      .getMe()
+      .then((user) => {
+        setState((s) => ({
+          ...s,
+          currentUser: user.display_name,
+          userProfile: {
+            id: user.id,
+            displayName: user.display_name,
+            email: user.email,
+            emailVerified: Boolean(user.email_verified_at),
+            isActive: user.is_active,
+            createdAt: user.created_at,
+          },
+          role: 'other',
+        }));
+      })
+      .catch(() => {
+        localStorage.removeItem('token');
+        setState((s) => ({
+          ...s,
+          currentUser: null,
+          userProfile: null,
+          role: 'guest',
+        }));
+      });
+  }, []);
+
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
       if (state.role === 'guest' || !state.currentUser)
@@ -110,7 +144,7 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       if (item.status !== 'menunggu') return { allowed: false, reason: 'Verifikasi kiriman ini sudah selesai.' };
       return { allowed: true };
     },
-    [state.role, state.currentUser],
+    [state.currentUser, state.role],
   );
 
   const vote = useCallback((itemId: string, choice: VoteChoice) => {
@@ -149,6 +183,103 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const login = useCallback(async (email: string, password = '') => {
+    if (password) {
+      const authData = await authService.login({ email, password });
+      localStorage.setItem('token', authData.access_token);
+
+      let profile: UserProfile;
+      try {
+        const me = await authService.getMe();
+        profile = {
+          id: me.id,
+          displayName: me.display_name,
+          email: me.email,
+          emailVerified: Boolean(me.email_verified_at),
+          isActive: me.is_active,
+          createdAt: me.created_at,
+        };
+      } catch {
+        profile = {
+          id: authData.user.id,
+          displayName: authData.user.display_name,
+          email: authData.user.email,
+          emailVerified: Boolean(authData.user.email_verified_at),
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        };
+      }
+
+      setState((s) => ({
+        ...s,
+        currentUser: profile.displayName,
+        userProfile: profile,
+        role: 'other',
+        loginOpen: false,
+      }));
+      return;
+    }
+
+    const displayName = email.split('@')[0];
+    setState((s) => ({
+      ...s,
+      currentUser: displayName,
+      userProfile: defaultProfile(displayName, email, true),
+      role: 'other',
+      loginOpen: false,
+    }));
+  }, []);
+
+  const register = useCallback(async (displayName: string, email: string, password = '') => {
+    if (password) {
+      await authService.register({ display_name: displayName, email, password });
+      const authData = await authService.login({ email, password });
+      localStorage.setItem('token', authData.access_token);
+
+      const profile: UserProfile = {
+        id: authData.user.id,
+        displayName: authData.user.display_name,
+        email: authData.user.email,
+        emailVerified: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      setState((s) => ({
+        ...s,
+        currentUser: profile.displayName,
+        userProfile: profile,
+        role: 'other',
+        loginOpen: false,
+      }));
+      return;
+    }
+
+    setState((s) => ({
+      ...s,
+      currentUser: displayName,
+      userProfile: defaultProfile(displayName, email, false),
+      role: 'other',
+      loginOpen: false,
+    }));
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await authService.logout();
+    } catch {
+      // Ignore network errors during logout
+    } finally {
+      localStorage.removeItem('token');
+      setState((s) => ({
+        ...s,
+        currentUser: null,
+        userProfile: null,
+        role: 'guest',
+      }));
+    }
+  }, []);
+
   const value = useMemo<WartaContextValue>(
     () => ({
       ...state,
@@ -180,24 +311,8 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       },
       clearEditDraft: () => patch({ editingDraftId: null }),
       toggleRupiah: () => setState((s) => ({ ...s, compactRupiah: !s.compactRupiah })),
-      login: (displayName, email) =>
-        patch({
-          currentUser: displayName,
-          userProfile: defaultProfile(
-            displayName,
-            email ?? `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@warga.id`,
-            true,
-          ),
-          role: 'other',
-          loginOpen: false,
-        }),
-      register: (displayName, email) =>
-        patch({
-          currentUser: displayName,
-          userProfile: defaultProfile(displayName, email, false),
-          role: 'other',
-          loginOpen: false,
-        }),
+      login,
+      register,
       updateDisplayName: (displayName) =>
         setState((s) => ({
           ...s,
@@ -209,7 +324,7 @@ export function WartaProvider({ children }: { children: ReactNode }) {
           ...s,
           userProfile: s.userProfile ? { ...s.userProfile, emailVerified: true } : null,
         })),
-      logout: () => patch({ currentUser: null, userProfile: null, role: 'guest' }),
+      logout,
       setLoginOpen: (loginOpen) => patch({ loginOpen }),
       vote,
       canVote,
@@ -248,42 +363,43 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         setState((s) => ({ ...s, myClaims: [c, ...s.myClaims], queue: [item, ...s.queue] })),
       addEvidence: (itemId, description, photoUrl) =>
         setState((s) => {
-          if (!s.currentUser) return s;
+          const target = s.queue.find((it) => it.id === itemId);
+          if (!target) return s;
           const newEv: EvidenceItem = {
             id: `ev-${Date.now()}`,
             reportId: itemId,
-            authorDisplayName: s.currentUser,
+            authorDisplayName: s.currentUser ?? 'Warga',
             description,
             photoUrl,
             createdAt: 'Baru saja',
           };
+          const existing = target.evidences ?? [];
           return {
             ...s,
-            queue: s.queue.map((it) =>
-              it.id === itemId ? { ...it, evidences: [...(it.evidences ?? []), newEv] } : it,
-            ),
+            queue: s.queue.map((it) => (it.id === itemId ? { ...it, evidences: [newEv, ...existing] } : it)),
           };
         }),
       deleteEvidence: (itemId, evidenceId) =>
-        setState((s) => ({
-          ...s,
-          queue: s.queue.map((it) =>
-            it.id === itemId
-              ? { ...it, evidences: (it.evidences ?? []).filter((e) => e.id !== evidenceId) }
-              : it,
-          ),
-        })),
+        setState((s) => {
+          const target = s.queue.find((it) => it.id === itemId);
+          if (!target) return s;
+          return {
+            ...s,
+            queue: s.queue.map((it) =>
+              it.id === itemId ? { ...it, evidences: (it.evidences ?? []).filter((e: EvidenceItem) => e.id !== evidenceId) } : it,
+            ),
+          };
+        }),
       reset: () => setState(initialState()),
     }),
-    [state, patch, vote, canVote],
+    [canVote, login, logout, patch, register, state, vote],
   );
 
   return <WartaContext.Provider value={value}>{children}</WartaContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export function useWarta(): WartaContextValue {
+export function useWarta() {
   const ctx = useContext(WartaContext);
-  if (!ctx) throw new Error('useWarta harus dipakai di dalam <WartaProvider>');
+  if (!ctx) throw new Error('useWarta harus digunakan di dalam WartaProvider');
   return ctx;
 }
