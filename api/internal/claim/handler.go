@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
 
 	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/middleware"
@@ -25,9 +24,9 @@ func NewHandler(store Store) *Handler {
 // CreateClaim handles POST /projects/:project_id/location-claims (§6.16).
 // Requires authenticated citizen.
 func (h *Handler) CreateClaim(c fiber.Ctx) error {
-	projectID := c.Params("project_id")
-	if _, err := uuid.Parse(projectID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid project_id format")
+	projectID, ok := httpx.ValidateUUIDParam(c, "project_id")
+	if !ok {
+		return nil
 	}
 
 	userID, _ := c.Locals(middleware.LocalUserID).(string)
@@ -37,7 +36,7 @@ func (h *Handler) CreateClaim(c fiber.Ctx) error {
 
 	var input CreateClaimInput
 	if err := json.Unmarshal(c.Body(), &input); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_json", "failed to parse request body")
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed", "The request body is not valid JSON.")
 	}
 
 	var fieldErrors []httpx.FieldError
@@ -88,18 +87,18 @@ func (h *Handler) CreateClaim(c fiber.Ctx) error {
 	}
 
 	if len(fieldErrors) > 0 {
-		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "validation failed", fieldErrors...)
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "One or more fields are invalid.", fieldErrors...)
 	}
 
 	claim, err := h.store.Create(c.Context(), projectID, userID, input)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "project_not_found", "project not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Project not found.")
 		}
 		if errors.Is(err, ErrProjectHasAcceptedClaim) {
-			return httpx.Error(c, fiber.StatusConflict, "claim_already_accepted", "project already has an accepted location claim")
+			return httpx.Error(c, fiber.StatusConflict, "conflict", "Project already has an accepted location claim.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to create location claim")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to create location claim.")
 	}
 
 	c.Set("Location", "/api/v1/location-claims/"+claim.ID)
@@ -108,17 +107,17 @@ func (h *Handler) CreateClaim(c fiber.Ctx) error {
 
 // GetClaim handles GET /location-claims/:claim_id.
 func (h *Handler) GetClaim(c fiber.Ctx) error {
-	claimID := c.Params("claim_id")
-	if _, err := uuid.Parse(claimID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid claim_id format")
+	claimID, ok := httpx.ValidateUUIDParam(c, "claim_id")
+	if !ok {
+		return nil
 	}
 
 	claim, err := h.store.GetByID(c.Context(), claimID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "claim_not_found", "location claim not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Claim not found.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to get location claim")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to get location claim.")
 	}
 
 	return httpx.Data(c, fiber.StatusOK, claim.View())
@@ -126,9 +125,9 @@ func (h *Handler) GetClaim(c fiber.Ctx) error {
 
 // GetClaimMedia handles GET /location-claims/:claim_id/media.
 func (h *Handler) GetClaimMedia(c fiber.Ctx) error {
-	claimID := c.Params("claim_id")
-	if _, err := uuid.Parse(claimID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid claim_id format")
+	claimID, ok := httpx.ValidateUUIDParam(c, "claim_id")
+	if !ok {
+		return nil
 	}
 
 	media, err := h.store.GetMedia(c.Context(), claimID)
@@ -137,7 +136,7 @@ func (h *Handler) GetClaimMedia(c fiber.Ctx) error {
 			// Return empty array if no media attached yet
 			return httpx.Data(c, fiber.StatusOK, []MediaView{})
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to get claim media")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to get claim media.")
 	}
 
 	return httpx.Data(c, fiber.StatusOK, []MediaView{media.View()})
@@ -146,27 +145,30 @@ func (h *Handler) GetClaimMedia(c fiber.Ctx) error {
 // UploadClaimMedia handles POST /location-claims/:claim_id/media.
 // One-photo rule and max 5MB. Author only.
 func (h *Handler) UploadClaimMedia(c fiber.Ctx) error {
-	claimID := c.Params("claim_id")
-	if _, err := uuid.Parse(claimID); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid_uuid", "invalid claim_id format")
+	claimID, ok := httpx.ValidateUUIDParam(c, "claim_id")
+	if !ok {
+		return nil
 	}
 
 	userID, _ := c.Locals(middleware.LocalUserID).(string)
 	claim, err := h.store.GetByID(c.Context(), claimID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "claim_not_found", "location claim not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Claim not found.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to check claim")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to check claim.")
 	}
 
 	if claim.UserID != userID {
-		return httpx.Error(c, fiber.StatusForbidden, "forbidden", "only the author can upload media")
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden", "Only the author can upload media.")
 	}
 
 	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "missing_file", "file is required")
+	if err != nil || fileHeader == nil {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "Validation failed.", httpx.FieldError{
+			Field:   "file",
+			Message: "file is required.",
+		})
 	}
 
 	// 5 MB limit
@@ -202,9 +204,9 @@ func (h *Handler) UploadClaimMedia(c fiber.Ctx) error {
 	createdMedia, err := h.store.AddMedia(c.Context(), claimID, media)
 	if err != nil {
 		if errors.Is(err, ErrPhotoLimitExceeded) {
-			return httpx.Error(c, fiber.StatusConflict, "photo_limit_exceeded", "a claim may have at most one photo")
+			return httpx.Error(c, fiber.StatusConflict, "photo_limit_reached", "Maximum of 1 photo per location claim reached.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to attach media")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to attach media.")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": createdMedia.View()})
@@ -213,31 +215,37 @@ func (h *Handler) UploadClaimMedia(c fiber.Ctx) error {
 // DeleteClaimMedia handles DELETE /location-claims/:claim_id/media/:media_id.
 // Author only, only allowed when claim is in menunggu status.
 func (h *Handler) DeleteClaimMedia(c fiber.Ctx) error {
-	claimID := c.Params("claim_id")
-	mediaID := c.Params("media_id")
+	claimID, ok := httpx.ValidateUUIDParam(c, "claim_id")
+	if !ok {
+		return nil
+	}
+	mediaID, ok := httpx.ValidateUUIDParam(c, "media_id")
+	if !ok {
+		return nil
+	}
 
 	userID, _ := c.Locals(middleware.LocalUserID).(string)
 	claim, err := h.store.GetByID(c.Context(), claimID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "claim_not_found", "location claim not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Claim not found.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to check claim")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to check claim.")
 	}
 
 	if claim.UserID != userID {
-		return httpx.Error(c, fiber.StatusForbidden, "forbidden", "only the author can delete media")
+		return httpx.Error(c, fiber.StatusForbidden, "forbidden", "Only the author can delete media.")
 	}
 
 	if claim.Status != StatusMenunggu {
-		return httpx.Error(c, fiber.StatusConflict, "invalid_claim_state", "photo can only be deleted while claim is menunggu")
+		return httpx.Error(c, fiber.StatusConflict, "conflict", "Photo can only be deleted while claim is pending review.")
 	}
 
 	if err := h.store.DeleteMedia(c.Context(), claimID, mediaID); err != nil {
 		if errors.Is(err, ErrMediaNotFound) {
-			return httpx.Error(c, fiber.StatusNotFound, "media_not_found", "photo not found")
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "Photo not found.")
 		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to delete media")
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "Failed to delete media.")
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)

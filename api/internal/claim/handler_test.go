@@ -13,6 +13,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"warta.com/api/internal/httpx"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/token"
 )
@@ -283,5 +284,67 @@ func TestLocationClaimAcceptancePath(t *testing.T) {
 
 	if err := store.AcceptClaim(context.Background(), claimID2); err != ErrProjectHasAcceptedClaim {
 		t.Fatalf("expected ErrProjectHasAcceptedClaim, got %v", err)
+	}
+}
+
+func TestClaimValidation_MalformedUUID(t *testing.T) {
+	store := NewMemoryStore()
+	manager := token.NewManager("test-secret-key-1234567890123456", time.Hour)
+	app := newTestApp(store, manager)
+
+	// 1. GET /location-claims/:claim_id with malformed UUID -> 400
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/location-claims/not-a-uuid", nil)
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d (%v)", resp.StatusCode, err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	var errEnvelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &errEnvelope)
+	if errEnvelope.Error.Code != "validation_failed" {
+		t.Errorf("expected code 'validation_failed', got %s", errEnvelope.Error.Code)
+	}
+}
+
+func TestClaimValidation_MultipleFieldErrorsAggregated(t *testing.T) {
+	store := NewMemoryStore()
+	manager := token.NewManager("test-secret-key-1234567890123456", time.Hour)
+	app := newTestApp(store, manager)
+	tok, _ := manager.Issue("00000000-0000-0000-0000-000000000001")
+
+	// Missing proposed_address, missing kecamatan, invalid proposed_precision
+	body, _ := json.Marshal(CreateClaimInput{
+		ProposedAddress:   "",
+		ProposedPrecision: "invalid_precision",
+		Kecamatan:         "",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/00000000-0000-0000-0000-000000000001/location-claims", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 Unprocessable Entity, got %d", resp.StatusCode)
+	}
+
+	resBody, _ := io.ReadAll(resp.Body)
+	var errEnvelope struct {
+		Error struct {
+			Code    string             `json:"code"`
+			Details []httpx.FieldError `json:"details"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(resBody, &errEnvelope)
+
+	if errEnvelope.Error.Code != "validation_failed" {
+		t.Errorf("expected code 'validation_failed', got %s", errEnvelope.Error.Code)
+	}
+	if len(errEnvelope.Error.Details) < 3 {
+		t.Errorf("expected at least 3 aggregated field errors in details[], got %d", len(errEnvelope.Error.Details))
 	}
 }

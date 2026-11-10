@@ -128,11 +128,11 @@ Organized by resource. Each endpoint is a task. Check off when implemented, test
 - [ ] `Retry-After` on 429/503
 
 ### Validation
-- [ ] Request validation before any write
-- [ ] Collect all field errors, return together (`details[]`)
-- [ ] UUID validation: 400 malformed, 404 not found
-- [ ] Pagination: default limit 20, max 100 (clamp, not reject)
-- [ ] Sort: `sort=field` / `sort=-field`
+- [x] Request validation before any write
+- [x] Collect all field errors, return together (`details[]`)
+- [x] UUID validation: 400 malformed, 404 not found
+- [x] Pagination: default limit 20, max 100 (clamp, not reject)
+- [x] Sort: `sort=field` / `sort=-field`
 
 ### File Upload
 - [ ] Object storage integration (S3/R2/MinIO)
