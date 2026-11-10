@@ -12,12 +12,7 @@ Notes for AI agents working in this repo. Trust code + config over prose (see "S
 ## Commands
 
 - DB: `docker compose up -d db` → Postgres 16 on **host port 5433** (mapped to dodge a host Postgres on 5432).
-- API (env vars documented in `.env.example`; `JWT_SECRET` required — server fails fast without it):
-  ```bash
-  cd api
-  DATABASE_URL=postgres://warta:warta@localhost:5433/warta?sslmode=disable \
-  JWT_SECRET=$(openssl rand -base64 48) WARTA_SEED=1 go run .
-  ```
+- API: `cd api && go run .` — the server auto-loads the nearest `.env` (searched upward from the working directory, so the repo-root `.env` is found). `.env` must contain `JWT_SECRET` (required — server fails fast without it), and real environment variables still win over `.env` values, so exporting `VAR=x` permanently overrides it (`.env.example` documents every var).
   Listening on `:3000` (config: `API_PORT`). Migrations run automatically at startup — there is **no migrate/seed CLI**. `WARTA_SEED=1` seeds 3 dev citizens (password `warta-dev-2026`) only when the users table is empty.
 - Frontends (from repo root): `pnpm dev` (admin, Vite default port 5173), `pnpm dev:landing` (landing, pinned 5174 + `strictPort`), `pnpm -r lint` (oxlint), `pnpm build` (runs `tsc -b` per app — the only typecheck; there is no separate `typecheck` script).
 - Go tests: `cd api && go test ./...` — all handler tests run the Fiber stack with in-memory stores; **no Postgres/Docker needed**.
