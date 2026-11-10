@@ -53,55 +53,40 @@ func (h *Handler) CreateClaim(c fiber.Ctx) error {
 		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed", "The request body is not valid JSON.")
 	}
 
-	var fieldErrors []httpx.FieldError
+	vb := httpx.NewValidationBuilder()
 
 	input.ProposedAddress = strings.TrimSpace(input.ProposedAddress)
-	if input.ProposedAddress == "" {
-		fieldErrors = append(fieldErrors, httpx.FieldError{
-			Field:   "proposed_address",
-			Message: "proposed_address is required",
-		})
-	}
+	vb.AddIfEmpty("proposed_address", input.ProposedAddress)
 
 	input.ProposedPrecision = strings.TrimSpace(input.ProposedPrecision)
 	switch input.ProposedPrecision {
 	case "titik", "alamat/ruas", "desa/kelurahan", "kecamatan", "kabupaten/kota":
 		// valid
 	default:
-		fieldErrors = append(fieldErrors, httpx.FieldError{
-			Field:   "proposed_precision",
-			Message: "allowed values: titik, alamat/ruas, desa/kelurahan, kecamatan, kabupaten/kota",
-		})
+		vb.AddError("proposed_precision", "allowed values: titik, alamat/ruas, desa/kelurahan, kecamatan, kabupaten/kota")
 	}
 
 	input.Kecamatan = strings.TrimSpace(input.Kecamatan)
-	if input.Kecamatan == "" {
-		fieldErrors = append(fieldErrors, httpx.FieldError{
-			Field:   "kecamatan",
-			Message: "kecamatan is required",
-		})
-	}
+	vb.AddIfEmpty("kecamatan", input.Kecamatan)
 
 	// Address line rule: required unless proposed_precision is kecamatan or desa/kelurahan
 	if input.ProposedPrecision != "kecamatan" && input.ProposedPrecision != "desa/kelurahan" {
-		if input.AddressLine == nil || strings.TrimSpace(*input.AddressLine) == "" {
-			fieldErrors = append(fieldErrors, httpx.FieldError{
-				Field:   "address_line",
-				Message: "address_line is required unless proposed_precision is kecamatan or desa/kelurahan",
-			})
+		var addrTrimmed string
+		if input.AddressLine != nil {
+			addrTrimmed = strings.TrimSpace(*input.AddressLine)
+		}
+		if addrTrimmed == "" {
+			vb.AddError("address_line", "address_line is required unless proposed_precision is kecamatan or desa/kelurahan")
 		}
 	}
 
 	// Latitude and longitude must both be present or both null
-	if (input.Latitude == nil && input.Longitude != nil) || (input.Latitude != nil && input.Longitude == nil) {
-		fieldErrors = append(fieldErrors, httpx.FieldError{
-			Field:   "coordinates",
-			Message: "latitude and longitude must both be present or both be null",
-		})
-	}
+	vb.AddErrorIf(
+		(input.Latitude == nil && input.Longitude != nil) || (input.Latitude != nil && input.Longitude == nil),
+		"coordinates", "latitude and longitude must both be present or both be null")
 
-	if len(fieldErrors) > 0 {
-		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "One or more fields are invalid.", fieldErrors...)
+	if vb.HasErrors() {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "One or more fields are invalid.", vb.Errors()...)
 	}
 
 	claim, err := h.store.Create(c.Context(), projectID, userID, input)
