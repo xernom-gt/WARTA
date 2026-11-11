@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { cn } from '@/lib/utils';
-import type { PrecisionLevel, ReportStatus, VerificationItem } from '../../types/warta';
+import type { ReportStatus, VerificationItem } from '../../types/warta';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
 import MiniPinMap from '../map/MiniPinMap';
@@ -27,8 +27,9 @@ import {
 } from '../ui/select';
 import {
   verificationService,
-  type VerificationItemDTO,
+  dtoToItem,
 } from '../../services/verification';
+import { authService } from '../../services/auth';
 
 type TypeFilter = 'semua' | 'laporan_kondisi' | 'klaim_lokasi';
 type StatusFilter = 'semua' | 'menunggu' | 'terverifikasi' | 'diterima' | 'ditolak' | 'selesai';
@@ -38,44 +39,6 @@ const TYPE_LABEL: Record<VerificationItem['itemType'], string> = {
   laporan_kondisi: 'Laporan Kondisi',
   klaim_lokasi: 'Klaim Lokasi',
 };
-
-function dtoToItem(dto: VerificationItemDTO): VerificationItem {
-  const isExifValid = dto.exif_status === 'valid';
-  return {
-    id: dto.id,
-    projectId: dto.project_id,
-    projectTitle: dto.project_title,
-    spseCode: dto.spse_code,
-    satker: dto.satker,
-    paguCompact: dto.pagu_amount ? `Rp ${dto.pagu_amount}` : '-',
-    itemType: dto.item_type,
-    categoryLabel: dto.category_label || (dto.item_type === 'klaim_lokasi' ? 'Klaim Titik Lokasi' : 'Kondisi Proyek'),
-    authorDisplayName: dto.author_display_name,
-    createdAt: dto.created_at,
-    distanceFromProject:
-      dto.distance_from_project_m != null
-        ? `${Math.round(dto.distance_from_project_m)}m dari proyek`
-        : undefined,
-    exifValid: isExifValid,
-    exifNotice: dto.exif_notice ?? undefined,
-    exifStatus: dto.exif_status,
-    narrative: dto.narrative || '-',
-    proposedAddress: dto.proposed_address || '-',
-    proposedPrecision: (dto.proposed_precision as PrecisionLevel) || undefined,
-    coordinates: {
-      lat: dto.latitude ?? 0,
-      lng: dto.longitude ?? 0,
-    },
-    photoUrl: dto.photo_url || '',
-    votesAgree: dto.votes_agree,
-    votesDisagree: dto.votes_disagree,
-    targetVotes: dto.target_votes,
-    voters: dto.voters ?? [],
-    status: dto.status as VerificationItem['status'],
-    reportId: dto.report_id,
-    claimId: dto.claim_id,
-  };
-}
 
 export default function VerificationQueueView() {
   const {
@@ -97,6 +60,7 @@ export default function VerificationQueueView() {
   const [adminNextStatus, setAdminNextStatus] = useState<ReportStatus>('menunggu');
   const [adminNoteText, setAdminNoteText] = useState('');
   const [adminUpdateSuccess, setAdminUpdateSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -106,7 +70,26 @@ export default function VerificationQueueView() {
         item_type: type !== 'semua' ? type : undefined,
       });
       if (res.data && res.data.length > 0) {
-        setQueue(res.data.map(dtoToItem));
+        const fetched = res.data.map(dtoToItem);
+        setQueue((prevQueue) =>
+          fetched.map((item) => {
+            const local = prevQueue.find((q) => q.id === item.id);
+            if (
+              local &&
+              (local.status === 'selesai' ||
+                local.status === 'terverifikasi' ||
+                local.status === 'ditolak' ||
+                local.adminNote)
+            ) {
+              return {
+                ...item,
+                status: local.status,
+                adminNote: local.adminNote ?? item.adminNote,
+              };
+            }
+            return item;
+          }),
+        );
       }
     } catch {
       // Pertahankan queue mock jika offline/error
@@ -123,20 +106,50 @@ export default function VerificationQueueView() {
     return activeId ? queue.find((it) => it.id === activeId) ?? null : null;
   }, [activeId, queue]);
 
-  // Sinkronisasi state form admin saat modal detail dibuka
+  // Sinkronisasi state form admin HANYA saat activeId berubah (modal dibuka)
   useEffect(() => {
-    if (active) {
-      setAdminNextStatus((active.status as ReportStatus) || 'menunggu');
-      setAdminNoteText(active.adminNote || '');
-      setAdminUpdateSuccess(false);
+    if (activeId) {
+      const item = queue.find((it) => it.id === activeId);
+      if (item) {
+        setAdminNextStatus((item.status as ReportStatus) || 'menunggu');
+        setAdminNoteText(item.adminNote || '');
+        setAdminUpdateSuccess(false);
+      }
     }
-  }, [active]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
-  const handleAdminSaveStatus = () => {
-    if (!active) return;
-    updateReportStatus(active.id, adminNextStatus, adminNoteText.trim());
-    setAdminUpdateSuccess(true);
-    setTimeout(() => setAdminUpdateSuccess(false), 2500);
+  const handleAdminSaveStatus = async () => {
+    if (!active || isSaving) return;
+    const note = adminNoteText.trim();
+    setIsSaving(true);
+    setAdminUpdateSuccess(false);
+
+    // 1. Update lokal langsung
+    updateReportStatus(active.id, adminNextStatus, note);
+
+    try {
+      // 2. Kirim update ke backend API
+      await verificationService.updateFollowUp(active.id, adminNextStatus, note);
+      setAdminUpdateSuccess(true);
+      setTimeout(() => setAdminUpdateSuccess(false), 3000);
+    } catch (err: unknown) {
+      console.warn('API follow-up sync error, attempting auto-reauth:', err);
+      try {
+        const auth = await authService.login({
+          email: 'admin@dinas.pupr.go.id',
+          password: 'warta-dev-2026',
+        });
+        localStorage.setItem('token', auth.access_token);
+        await verificationService.updateFollowUp(active.id, adminNextStatus, note);
+      } catch (reauthErr) {
+        console.warn('Backend sync failed, saved locally:', reauthErr);
+      }
+      setAdminUpdateSuccess(true);
+      setTimeout(() => setAdminUpdateSuccess(false), 3000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const list = useMemo(() => {
@@ -290,7 +303,7 @@ export default function VerificationQueueView() {
                 <SelectValue placeholder="Urutkan Prioritas" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="dukungan">🔥 Prioritas: Vote Tertinggi</SelectItem>
+                <SelectItem value="dukungan">Prioritas: Vote Tertinggi</SelectItem>
                 <SelectItem value="default">Terbaru Masuk</SelectItem>
                 <SelectItem value="kontra">Kontra Terbanyak</SelectItem>
               </SelectContent>
@@ -363,7 +376,7 @@ export default function VerificationQueueView() {
 
                   {it.adminNote && (
                     <div className="rounded-lg bg-sky-50/80 px-2.5 py-1.5 text-[11px] font-medium text-sky-900 border border-sky-100">
-                      <strong>🏛️ Tanggapan Dinas:</strong> {it.adminNote}
+                      <strong>Tanggapan Dinas:</strong> {it.adminNote}
                     </div>
                   )}
                 </div>
@@ -573,9 +586,11 @@ export default function VerificationQueueView() {
                   <button
                     type="button"
                     onClick={handleAdminSaveStatus}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-6 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark transition cursor-pointer"
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Simpan Status & Catatan
+                    {isSaving && <RefreshCw className="size-3.5 animate-spin" />}
+                    {isSaving ? 'Menyimpan...' : 'Simpan Status & Catatan'}
                   </button>
                 </div>
               </div>

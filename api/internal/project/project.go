@@ -210,6 +210,49 @@ type ListResult struct {
 	Meta Meta       `json:"meta"`
 }
 
+// CreateProjectParams carries the input fields for POST /projects.
+type CreateProjectParams struct {
+	Title          string   `json:"title"`
+	SPSECode       string   `json:"spse_code"`
+	Satker         string   `json:"satker"`
+	Category       string   `json:"category"`
+	PaguAmount     string   `json:"pagu_amount"`
+	HPSAmount      string   `json:"hps_amount"`
+	ContractAmount *string  `json:"contract_amount"`
+	ContractNote   *string  `json:"contract_note"`
+	City           string   `json:"city"`
+	IsOutsideDKI   bool     `json:"is_outside_dki"`
+	PrecisionLevel string   `json:"precision_level"`
+	Status         Status   `json:"status"`
+	SourceNote     *string  `json:"source_note"`
+	Years          []int    `json:"years"`
+	// Primary Location
+	Address   string   `json:"address"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+}
+
+// UpdateProjectParams carries optional update fields for PATCH /projects/{id}.
+type UpdateProjectParams struct {
+	Title          *string  `json:"title"`
+	Satker         *string  `json:"satker"`
+	Category       *string  `json:"category"`
+	PaguAmount     *string  `json:"pagu_amount"`
+	HPSAmount      *string  `json:"hps_amount"`
+	ContractAmount *string  `json:"contract_amount"`
+	ContractNote   *string  `json:"contract_note"`
+	City           *string  `json:"city"`
+	IsOutsideDKI   *bool    `json:"is_outside_dki"`
+	PrecisionLevel *string  `json:"precision_level"`
+	Status         *Status  `json:"status"`
+	SourceNote     *string  `json:"source_note"`
+	Years          []int    `json:"years"`
+	// Primary Location updates
+	Address   *string  `json:"address"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+}
+
 // Store reads the projects domain. Writes arrive with the import milestone
 // and extend this interface.
 type Store interface {
@@ -225,4 +268,8 @@ type Store interface {
 	ListLocations(ctx context.Context, projectID string) ([]*Location, error)
 	// ListRiskFlags returns active flags, creation order (§6.11).
 	ListRiskFlags(ctx context.Context, projectID string) ([]*RiskFlag, error)
+	// Create inserts a new project with its years and primary location.
+	Create(ctx context.Context, params CreateProjectParams) (*Project, error)
+	// Update patches an existing project and its primary location.
+	Update(ctx context.Context, id string, params UpdateProjectParams) (*Project, error)
 }

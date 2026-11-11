@@ -1,5 +1,4 @@
 import CitizenLoginModal from './components/common/CitizenLoginModal';
-import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
 import CitizenFooter from './components/layout/CitizenFooter';
 import CitizenHeader from './components/layout/CitizenHeader';
 import ProjectDetailModal from './components/project/ProjectDetailModal';
@@ -38,7 +37,6 @@ export default function App() {
         <CitizenFooter />
         <ProjectDetailModal />
         <CitizenLoginModal />
-        <ScrollPositionIndicator />
       </div>
     </WartaProvider>
   );

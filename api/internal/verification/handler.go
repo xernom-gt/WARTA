@@ -172,3 +172,40 @@ func (h *Handler) CastVote(c fiber.Ctx) error {
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": vote})
 }
+
+// UpdateFollowUpRequest carries the payload for PATCH /verification-items/:id/follow-up.
+type UpdateFollowUpRequest struct {
+	AdminStatus string  `json:"admin_status"`
+	AdminNote   *string `json:"admin_note"`
+}
+
+// UpdateFollowUp handles PATCH /verification-items/:id/follow-up (admin only).
+func (h *Handler) UpdateFollowUp(c fiber.Ctx) error {
+	itemID, ok := httpx.ValidateUUIDParam(c, "id")
+	if !ok {
+		return nil
+	}
+
+	var req UpdateFollowUpRequest
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "bad_request", "failed to parse request body")
+	}
+
+	status := strings.TrimSpace(req.AdminStatus)
+	if status == "" {
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "admin_status is required", httpx.FieldError{
+			Field:   "admin_status",
+			Message: "admin_status is required (e.g. diproses, selesai, ditolak)",
+		})
+	}
+
+	item, err := h.queueStore.UpdateFollowUp(c.Context(), itemID, status, req.AdminNote)
+	if err != nil {
+		if errors.Is(err, ErrItemNotFound) {
+			return httpx.Error(c, fiber.StatusNotFound, "not_found", "verification item not found")
+		}
+		return httpx.Error(c, fiber.StatusInternalServerError, "internal_error", "failed to update follow up")
+	}
+
+	return httpx.Data(c, fiber.StatusOK, item.View())
+}

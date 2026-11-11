@@ -14,6 +14,7 @@ type User struct {
 	DisplayName     string
 	Email           string
 	PasswordHash    string
+	Role            string
 	IsActive        bool
 	EmailVerifiedAt *time.Time
 	CreatedAt       time.Time

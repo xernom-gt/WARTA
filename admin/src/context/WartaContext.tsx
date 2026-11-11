@@ -17,6 +17,7 @@ import {
   INITIAL_VERIFICATION_QUEUE,
   INITIAL_VOTE_HISTORY,
   WARTA_PROJECTS,
+  PROJECT_ID_MAP,
 } from '../data/wartaData';
 import { authService, type UserPrivate } from '../services/auth';
 
@@ -24,6 +25,7 @@ interface WartaState {
   currentUser: string | null;
   authUser: UserPrivate | null;
   role: UserRole;
+  isAuthChecking: boolean;
   mapCondition: MapCondition;
   activeScreen: ActiveScreen;
   selectedProjectId: string | null;
@@ -54,7 +56,7 @@ interface WartaContextValue extends WartaState {
   addReport: (r: CitizenReport, item?: VerificationItem) => void;
   addClaim: (c: CitizenClaim, item: VerificationItem) => void;
   reset: () => void;
-  setQueue: (items: VerificationItem[]) => void;
+  setQueue: (items: VerificationItem[] | ((prev: VerificationItem[]) => VerificationItem[])) => void;
   recordVote: (record: VoteRecord, updatedItem?: VerificationItem) => void;
   // Fitur Utama Admin:
   updateProject: (id: string, partial: Partial<ProjectPackage>) => void;
@@ -63,38 +65,45 @@ interface WartaContextValue extends WartaState {
   updateReportStatus: (itemId: string, status: ReportStatus, adminNote?: string) => void;
 }
 
-const STORAGE_KEY_PROJECTS = 'warta_admin_projects_v5';
-const STORAGE_KEY_QUEUE = 'warta_admin_queue_v5';
-const STORAGE_KEY_SCREEN = 'warta_admin_screen_v5';
+const STORAGE_KEY_PROJECTS = 'warta_admin_projects_v6';
+const STORAGE_KEY_QUEUE = 'warta_admin_queue_v6';
+const STORAGE_KEY_SCREEN = 'warta_admin_screen_v6';
 
 const loadPersistedProjects = (): ProjectPackage[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_PROJECTS);
+    const raw = localStorage.getItem(STORAGE_KEY_PROJECTS) || localStorage.getItem('warta_admin_projects_v5');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Smart merge: Pastikan 10 proyek WARTA_PROJECTS selalu ada.
-        // Jika ada editan admin, timpa dengan data editan.
-        // Proyek baru tambahan admin (custom ID) disertakan di awal.
+        // Normalize legacy proj-* IDs to canonical UUIDs
+        const normalized: ProjectPackage[] = parsed.map((p: ProjectPackage) => {
+          const canonicalId = PROJECT_ID_MAP[p.id] || p.id;
+          return canonicalId !== p.id ? { ...p, id: canonicalId } : p;
+        });
+
         const merged: ProjectPackage[] = [];
 
-        // 1. Proyek buatan admin (ID yang tidak ada di WARTA_PROJECTS)
-        const customProjects = parsed.filter(
+        // 1. Custom projects created by admin (IDs not matching any canonical project)
+        const customProjects = normalized.filter(
           (p: ProjectPackage) => !WARTA_PROJECTS.some((wp) => wp.id === p.id),
         );
         merged.push(...customProjects);
 
-        // 2. 10 Proyek kanonik DKI Jakarta
+        // 2. 10 Canonical DKI Jakarta Projects (with admin edits applied)
         for (const wp of WARTA_PROJECTS) {
-          const edited = parsed.find((p: ProjectPackage) => p.id === wp.id);
+          const edited = normalized.find((p: ProjectPackage) => p.id === wp.id);
           merged.push(edited ? { ...wp, ...edited } : structuredClone(wp));
         }
+
+        // Clean up legacy v5 key and persist v6
+        localStorage.removeItem('warta_admin_projects_v5');
+        localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(merged));
 
         return merged;
       }
     }
   } catch {
-    // Abaikan jika storage disabled/corrupt
+    // Ignore storage issues
   }
   return structuredClone(WARTA_PROJECTS);
 };
@@ -125,9 +134,10 @@ const loadPersistedScreen = (): ActiveScreen => {
 };
 
 const initialState = (): WartaState => ({
-  currentUser: 'Admin Pengelola (Dinas PUPR)',
+  currentUser: null,
   authUser: null,
-  role: 'other',
+  role: 'guest',
+  isAuthChecking: Boolean(typeof window !== 'undefined' && localStorage.getItem('token')),
   mapCondition: 'normal',
   activeScreen: loadPersistedScreen(),
   selectedProjectId: null,
@@ -181,19 +191,61 @@ export function WartaProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      setState((s) => ({ ...s, isAuthChecking: false }));
+      return;
+    }
+    if (token === 'demo-admin-token') {
+      setState((s) => ({
+        ...s,
+        currentUser: 'Admin Pengelola (Dinas PUPR)',
+        authUser: {
+          id: 'a0000000-0000-0000-0000-000000000001',
+          display_name: 'Admin Pengelola (Dinas PUPR)',
+          email: 'admin@dinas.pupr.go.id',
+          role: 'admin',
+          email_verified_at: new Date().toISOString(),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        role: 'other',
+        isAuthChecking: false,
+      }));
+      return;
+    }
     authService
       .getMe()
       .then((user) => {
+        // Jika akun warga mencoba buka portal admin, tolak sesi
+        if (user.role && user.role !== 'admin') {
+          localStorage.removeItem('token');
+          setState((s) => ({
+            ...s,
+            currentUser: null,
+            authUser: null,
+            role: 'guest',
+            isAuthChecking: false,
+          }));
+          return;
+        }
         setState((s) => ({
           ...s,
           currentUser: user.display_name,
           authUser: user,
           role: 'other',
+          isAuthChecking: false,
         }));
       })
       .catch(() => {
         localStorage.removeItem('token');
+        setState((s) => ({
+          ...s,
+          currentUser: null,
+          authUser: null,
+          role: 'guest',
+          isAuthChecking: false,
+        }));
       });
   }, []);
 
@@ -251,8 +303,11 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const setQueue = useCallback((items: VerificationItem[]) => {
-    setState((s) => ({ ...s, queue: items }));
+  const setQueue = useCallback((items: VerificationItem[] | ((prev: VerificationItem[]) => VerificationItem[])) => {
+    setState((s) => ({
+      ...s,
+      queue: typeof items === 'function' ? items(s.queue) : items,
+    }));
   }, []);
 
   const recordVote = useCallback((record: VoteRecord, updatedItem?: VerificationItem) => {
@@ -343,10 +398,11 @@ export function WartaProvider({ children }: { children: ReactNode }) {
           authUser: userObj ?? null,
           role: 'other',
           loginOpen: false,
+          isAuthChecking: false,
         }),
       logout: () => {
         authService.logout().catch(() => {});
-        patch({ currentUser: null, authUser: null, role: 'guest' });
+        patch({ currentUser: null, authUser: null, role: 'guest', isAuthChecking: false });
       },
       setLoginOpen: (loginOpen) => patch({ loginOpen }),
       vote,

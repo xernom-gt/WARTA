@@ -2,8 +2,11 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -351,3 +354,260 @@ func clampPage(page, limit int) (int, int) {
 
 // itoa is strconv.Itoa shorthand for building placeholder indexes.
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// Create inserts a new project with its primary location and fiscal years in one transaction.
+func (s *PGStore) Create(ctx context.Context, params CreateProjectParams) (*Project, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	id := uuid.NewString()
+	spseCode := params.SPSECode
+	if spseCode == "" {
+		spseCode = fmt.Sprintf("WARTA-%d", time.Now().UnixNano()%10000000000)
+	}
+	precision := params.PrecisionLevel
+	if precision == "" {
+		precision = PrecisionTitik
+	}
+	status := params.Status
+	if status == "" {
+		status = StatusMenunggu
+	}
+	hps := params.HPSAmount
+	if hps == "" {
+		hps = params.PaguAmount
+	}
+	locDesc := params.Address
+	if locDesc == "" {
+		locDesc = params.City
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO projects (
+			id, spse_code, title, satker, category, pagu_amount, hps_amount, contract_amount, contract_note,
+			city, is_outside_dki, location_description, precision_level, location_source, is_canonical_claimed,
+			status, source_note, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9,
+			$10, $11, $12, $13, 'MANUAL', false,
+			$14, $15, NOW(), NOW()
+		)`,
+		id, spseCode, params.Title, params.Satker, params.Category,
+		params.PaguAmount, hps, params.ContractAmount, params.ContractNote,
+		params.City, params.IsOutsideDKI, locDesc, precision,
+		string(status), params.SourceNote,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, year := range params.Years {
+		if year >= 2000 && year <= 2100 {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO project_years (project_id, fiscal_year)
+				VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, year)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	var hasCoords bool
+	if params.Latitude != nil && params.Longitude != nil {
+		hasCoords = true
+	}
+	var lat, lng any
+	if hasCoords {
+		lat, lng = *params.Latitude, *params.Longitude
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO project_locations (
+			id, project_id, name, address, city, precision_level, source,
+			latitude, longitude, is_verified, is_primary, created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3, $4, $5, 'MANUAL',
+			$6, $7, true, true, NOW(), NOW()
+		)`,
+		id, params.Title, locDesc, params.City, precision, lat, lng,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return s.FindByID(ctx, id)
+}
+
+// Update patches an existing project and updates its primary location and fiscal years in one transaction.
+func (s *PGStore) Update(ctx context.Context, id string, params UpdateProjectParams) (*Project, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var existingID string
+	err = tx.QueryRow(ctx, `SELECT id FROM projects WHERE id = $1 FOR UPDATE`, id).Scan(&existingID)
+	if err == pgx.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	setClauses := []string{"updated_at = NOW()"}
+	args := []any{id}
+
+	if params.Title != nil {
+		setClauses = append(setClauses, fmt.Sprintf("title = $%d", len(args)+1))
+		args = append(args, *params.Title)
+	}
+	if params.Satker != nil {
+		setClauses = append(setClauses, fmt.Sprintf("satker = $%d", len(args)+1))
+		args = append(args, *params.Satker)
+	}
+	if params.Category != nil {
+		setClauses = append(setClauses, fmt.Sprintf("category = $%d", len(args)+1))
+		args = append(args, *params.Category)
+	}
+	if params.PaguAmount != nil {
+		setClauses = append(setClauses, fmt.Sprintf("pagu_amount = $%d::numeric", len(args)+1))
+		args = append(args, *params.PaguAmount)
+	}
+	if params.HPSAmount != nil {
+		setClauses = append(setClauses, fmt.Sprintf("hps_amount = $%d::numeric", len(args)+1))
+		args = append(args, *params.HPSAmount)
+	}
+	if params.ContractAmount != nil {
+		setClauses = append(setClauses, fmt.Sprintf("contract_amount = $%d::numeric", len(args)+1))
+		args = append(args, *params.ContractAmount)
+	}
+	if params.ContractNote != nil {
+		setClauses = append(setClauses, fmt.Sprintf("contract_note = $%d", len(args)+1))
+		args = append(args, *params.ContractNote)
+	}
+	if params.City != nil {
+		setClauses = append(setClauses, fmt.Sprintf("city = $%d", len(args)+1))
+		args = append(args, *params.City)
+	}
+	if params.IsOutsideDKI != nil {
+		setClauses = append(setClauses, fmt.Sprintf("is_outside_dki = $%d", len(args)+1))
+		args = append(args, *params.IsOutsideDKI)
+	}
+	if params.PrecisionLevel != nil {
+		setClauses = append(setClauses, fmt.Sprintf("precision_level = $%d", len(args)+1))
+		args = append(args, *params.PrecisionLevel)
+	}
+	if params.Status != nil {
+		setClauses = append(setClauses, fmt.Sprintf("status = $%d", len(args)+1))
+		args = append(args, string(*params.Status))
+	}
+	if params.SourceNote != nil {
+		setClauses = append(setClauses, fmt.Sprintf("source_note = $%d", len(args)+1))
+		args = append(args, *params.SourceNote)
+	}
+
+	query := "UPDATE projects SET "
+	for i, clause := range setClauses {
+		if i > 0 {
+			query += ", "
+		}
+		query += clause
+	}
+	query += " WHERE id = $1"
+
+	if _, err := tx.Exec(ctx, query, args...); err != nil {
+		return nil, err
+	}
+
+	if len(params.Years) > 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM project_years WHERE project_id = $1`, id); err != nil {
+			return nil, err
+		}
+		for _, yr := range params.Years {
+			if yr >= 2000 && yr <= 2100 {
+				_, err = tx.Exec(ctx, `
+					INSERT INTO project_years (project_id, fiscal_year)
+					VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, yr)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	if params.Latitude != nil || params.Longitude != nil || params.Address != nil {
+		var locID string
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM project_locations
+			WHERE project_id = $1 AND is_primary = true
+			ORDER BY created_at ASC LIMIT 1`, id).Scan(&locID)
+
+		if err == pgx.ErrNoRows {
+			addr := ""
+			if params.Address != nil {
+				addr = *params.Address
+			}
+			city := "DKI Jakarta"
+			if params.City != nil {
+				city = *params.City
+			}
+			prec := PrecisionTitik
+			if params.PrecisionLevel != nil {
+				prec = *params.PrecisionLevel
+			}
+			var lat, lng any
+			if params.Latitude != nil && params.Longitude != nil {
+				lat, lng = *params.Latitude, *params.Longitude
+			}
+			_, err = tx.Exec(ctx, `
+				INSERT INTO project_locations (
+					id, project_id, name, address, city, precision_level, source,
+					latitude, longitude, is_verified, is_primary, created_at, updated_at
+				) VALUES (
+					gen_random_uuid(), $1, NULL, $2, $3, $4, 'MANUAL',
+					$5, $6, true, true, NOW(), NOW()
+				)`, id, addr, city, prec, lat, lng)
+			if err != nil {
+				return nil, err
+			}
+		} else if err != nil {
+			return nil, err
+		} else {
+			locClauses := []string{"updated_at = NOW()"}
+			locArgs := []any{locID}
+			if params.Address != nil {
+				locClauses = append(locClauses, fmt.Sprintf("address = $%d", len(locArgs)+1))
+				locArgs = append(locArgs, *params.Address)
+			}
+			if params.Latitude != nil && params.Longitude != nil {
+				locClauses = append(locClauses, fmt.Sprintf("latitude = $%d, longitude = $%d", len(locArgs)+1, len(locArgs)+2))
+				locArgs = append(locArgs, *params.Latitude, *params.Longitude)
+			}
+			locQuery := "UPDATE project_locations SET "
+			for i, clause := range locClauses {
+				if i > 0 {
+					locQuery += ", "
+				}
+				locQuery += clause
+			}
+			locQuery += " WHERE id = $1"
+			if _, err := tx.Exec(ctx, locQuery, locArgs...); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return s.FindByID(ctx, id)
+}

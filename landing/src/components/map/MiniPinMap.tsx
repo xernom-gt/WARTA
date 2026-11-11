@@ -345,7 +345,7 @@ export default function MiniPinMap({
         {/* Badge panduan interaksi */}
         <div className="pointer-events-none absolute bottom-3 left-16 z-10 hidden sm:block">
           <span className="rounded-lg bg-slate-900/75 px-2.5 py-1 text-[11px] font-medium text-white shadow-xs backdrop-blur-xs">
-            💡 Geser pin atau klik jalan untuk mengarahkan lokasi
+            Geser pin atau klik jalan untuk mengarahkan lokasi
           </span>
         </div>
       </div>
@@ -371,7 +371,7 @@ export default function MiniPinMap({
       </div>
 
       {geoError && (
-        <p className="text-xs text-red-600 font-medium">⚠️ {geoError}</p>
+        <p className="text-xs text-red-600 font-medium">{geoError}</p>
       )}
     </div>
   );

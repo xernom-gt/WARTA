@@ -12,19 +12,19 @@ export const SAMPLE_DATA =
   (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('sample') === '1');
 
 export const DATASET_SUMMARY = {
-  totalRawPackages: 122,
-  uniqueProjects: 118,
-  duplicateGroupsMerged: 4,
-  duplicateRowsCount: 8,
-  multiYearPackages: 25,
-  multiLocationPackages: 5,
-  multiCityPackages: 14,
-  missingContractCount: 19,
+  totalRawPackages: 10,
+  uniqueProjects: 10,
+  duplicateGroupsMerged: 0,
+  duplicateRowsCount: 0,
+  multiYearPackages: 3,
+  multiLocationPackages: 2,
+  multiCityPackages: 1,
+  missingContractCount: 2,
   precisionBreakdown: {
-    kabupatenKota: 91,
-    alamatRuas: 16,
-    desaKelurahan: 12,
-    kecamatan: 3,
+    kabupatenKota: 4,
+    alamatRuas: 3,
+    desaKelurahan: 2,
+    kecamatan: 1,
     titikPasti: 0,
   },
 };
@@ -38,6 +38,8 @@ export const PROJECT_ID_MAP: Record<string, string> = {
   'proj-6': '11111111-1111-1111-1111-000000000006',
   'proj-7': '11111111-1111-1111-1111-000000000007',
   'proj-8': '11111111-1111-1111-1111-000000000008',
+  'proj-9': '11111111-1111-1111-1111-000000000009',
+  'proj-10': '11111111-1111-1111-1111-000000000010',
 };
 
 export const WARTA_PROJECTS: ProjectPackage[] = [
@@ -423,7 +425,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 150, svgY: 145, lat: -5.7459, lng: 106.6138 },
   },
   {
-    id: 'proj-9',
+    id: '11111111-1111-1111-1111-000000000009',
     title: 'Revitalisasi Trotoar & Saluran Koridor Sudirman-Thamrin',
     spseCode: '10078924000',
     failedTenders: [],
@@ -458,7 +460,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 520, svgY: 480, lat: -6.2154, lng: 106.8211 },
   },
   {
-    id: 'proj-10',
+    id: '11111111-1111-1111-1111-000000000010',
     title: 'Pembangunan Flyover Pramuka-Matraman',
     spseCode: '10065432000',
     failedTenders: [],

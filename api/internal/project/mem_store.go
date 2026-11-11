@@ -2,9 +2,13 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // MemoryStore is the in-memory Store used by handler tests. Seed installs a
@@ -305,4 +309,190 @@ func decimalParts(v string) (string, string) {
 		intPart = "0" + intPart
 	}
 	return intPart, frac
+}
+
+// Create adds a new project with its primary location to memory.
+func (s *MemoryStore) Create(_ context.Context, params CreateProjectParams) (*Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := uuid.NewString()
+	spseCode := params.SPSECode
+	if spseCode == "" {
+		spseCode = fmt.Sprintf("WARTA-%d", time.Now().UnixNano()%10000000000)
+	}
+	precision := params.PrecisionLevel
+	if precision == "" {
+		precision = PrecisionTitik
+	}
+	status := params.Status
+	if status == "" {
+		status = StatusMenunggu
+	}
+	hps := params.HPSAmount
+	if hps == "" {
+		hps = params.PaguAmount
+	}
+	now := time.Now().UTC()
+
+	p := &Project{
+		ID:             id,
+		SPSECode:       spseCode,
+		Title:          params.Title,
+		Satker:         params.Satker,
+		Category:       params.Category,
+		PaguAmount:     params.PaguAmount,
+		HPSAmount:      hps,
+		ContractAmount: params.ContractAmount,
+		ContractNote:   params.ContractNote,
+		City:           params.City,
+		IsOutsideDKI:   params.IsOutsideDKI,
+		PrecisionLevel: precision,
+		LocationSource: "MANUAL",
+		Status:         status,
+		SourceNote:     params.SourceNote,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		Years:          append([]int(nil), params.Years...),
+	}
+
+	locDesc := params.Address
+	if locDesc == "" {
+		locDesc = params.City
+	}
+
+	loc := &Location{
+		ID:             uuid.NewString(),
+		ProjectID:      id,
+		Address:        locDesc,
+		City:           params.City,
+		PrecisionLevel: precision,
+		Source:         "MANUAL",
+		Latitude:       params.Latitude,
+		Longitude:      params.Longitude,
+		IsVerified:     true,
+		IsPrimary:      true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	s.projects = append(s.projects, p)
+	s.locations[id] = []*Location{loc}
+	s.tenders[id] = []*Tender{}
+	s.riskFlags[id] = []*RiskFlag{}
+	s.reportsCount[id] = 0
+	s.verificationsCount[id] = 0
+
+	return s.fill(p), nil
+}
+
+// Update modifies an existing project in memory.
+func (s *MemoryStore) Update(_ context.Context, id string, params UpdateProjectParams) (*Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Project
+	for _, p := range s.projects {
+		if p.ID == id {
+			target = p
+			break
+		}
+	}
+	if target == nil {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	target.UpdatedAt = now
+
+	if params.Title != nil {
+		target.Title = *params.Title
+	}
+	if params.Satker != nil {
+		target.Satker = *params.Satker
+	}
+	if params.Category != nil {
+		target.Category = *params.Category
+	}
+	if params.PaguAmount != nil {
+		target.PaguAmount = *params.PaguAmount
+	}
+	if params.HPSAmount != nil {
+		target.HPSAmount = *params.HPSAmount
+	}
+	if params.ContractAmount != nil {
+		target.ContractAmount = params.ContractAmount
+	}
+	if params.ContractNote != nil {
+		target.ContractNote = params.ContractNote
+	}
+	if params.City != nil {
+		target.City = *params.City
+	}
+	if params.IsOutsideDKI != nil {
+		target.IsOutsideDKI = *params.IsOutsideDKI
+	}
+	if params.PrecisionLevel != nil {
+		target.PrecisionLevel = *params.PrecisionLevel
+	}
+	if params.Status != nil {
+		target.Status = *params.Status
+	}
+	if params.SourceNote != nil {
+		target.SourceNote = params.SourceNote
+	}
+	if len(params.Years) > 0 {
+		target.Years = append([]int(nil), params.Years...)
+	}
+
+	if params.Latitude != nil || params.Longitude != nil || params.Address != nil {
+		locs := s.locations[id]
+		var primaryLoc *Location
+		for _, l := range locs {
+			if l.IsPrimary {
+				primaryLoc = l
+				break
+			}
+		}
+		if primaryLoc == nil {
+			addr := ""
+			if params.Address != nil {
+				addr = *params.Address
+			}
+			city := target.City
+			if params.City != nil {
+				city = *params.City
+			}
+			prec := target.PrecisionLevel
+			if params.PrecisionLevel != nil {
+				prec = *params.PrecisionLevel
+			}
+			primaryLoc = &Location{
+				ID:             uuid.NewString(),
+				ProjectID:      id,
+				Address:        addr,
+				City:           city,
+				PrecisionLevel: prec,
+				Source:         "MANUAL",
+				Latitude:       params.Latitude,
+				Longitude:      params.Longitude,
+				IsVerified:     true,
+				IsPrimary:      true,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			s.locations[id] = append(s.locations[id], primaryLoc)
+		} else {
+			if params.Address != nil {
+				primaryLoc.Address = *params.Address
+			}
+			if params.Latitude != nil && params.Longitude != nil {
+				primaryLoc.Latitude = params.Latitude
+				primaryLoc.Longitude = params.Longitude
+			}
+			primaryLoc.UpdatedAt = now
+		}
+	}
+
+	return s.fill(target), nil
 }

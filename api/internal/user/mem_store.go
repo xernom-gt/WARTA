@@ -35,6 +35,9 @@ func (s *MemoryStore) MustAdd(u User) *User {
 	if u.ID == "" {
 		u.ID = uuid.NewString()
 	}
+	if u.Role == "" {
+		u.Role = "warga"
+	}
 	if _, clash := s.byMail[strings.ToLower(u.Email)]; clash {
 		panic("memstore: seed email conflict")
 	}
@@ -54,6 +57,9 @@ func (s *MemoryStore) Create(_ context.Context, u *User) error {
 	defer s.mu.Unlock()
 	if u.ID == "" {
 		u.ID = uuid.NewString()
+	}
+	if u.Role == "" {
+		u.Role = "warga"
 	}
 	now := time.Now().UTC()
 	u.CreatedAt, u.UpdatedAt = now, now

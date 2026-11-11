@@ -20,13 +20,14 @@ import {
   X,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
-import { DATASET_SUMMARY, WARTA_PROJECTS } from '../../data/wartaData';
+import { DATASET_SUMMARY, INITIAL_VERIFICATION_QUEUE, WARTA_PROJECTS } from '../../data/wartaData';
 import type { VerificationItem } from '../../types/warta';
 import {
   reportsService,
   reportToVerificationItem,
   apiItemToVerificationItem,
 } from '../../services/reports';
+import { projectsService } from '../../services/projects';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
 
@@ -57,6 +58,23 @@ export default function PublicReportsFeedView() {
   const [sort, setSort] = useState<SortKey>('terbaru');
   const [feedState, setFeedState] = useState<FeedState>('ready');
   const [apiItems, setApiItems] = useState<VerificationItem[] | null>(null);
+  const [totalProjectsCount, setTotalProjectsCount] = useState<number>(WARTA_PROJECTS.length);
+
+  // Ambil jumlah proyek riil dari API /projects
+  useEffect(() => {
+    projectsService
+      .listProjects({ limit: 100 })
+      .then((res) => {
+        if (res.meta && typeof res.meta.total === 'number') {
+          setTotalProjectsCount(res.meta.total);
+        } else if (res.data && res.data.length > 0) {
+          setTotalProjectsCount(res.data.length);
+        }
+      })
+      .catch(() => {
+        // Abaikan jika offline, tetap gunakan WARTA_PROJECTS.length
+      });
+  }, []);
 
   // Form tambah bukti pendukung (POST /reports/{report_id}/evidences)
   const [evDesc, setEvDesc] = useState('');
@@ -105,8 +123,29 @@ export default function PublicReportsFeedView() {
     return () => controller.abort();
   }, [projectFilter, status, type]);
 
-  const activeQueue = useMemo(() => {
-    return apiItems !== null ? apiItems : queue;
+  const activeQueue: VerificationItem[] = useMemo(() => {
+    if (apiItems !== null) {
+      const apiIds = new Set(apiItems.map((it) => it.id));
+      const localNew = queue.filter(
+        (it) => !apiIds.has(it.id) && !it.id.startsWith('ver-') && !it.id.startsWith('ev-'),
+      );
+      const mergedApi = apiItems.map((apiIt) => {
+        const localMatch = queue.find((qIt) => qIt.id === apiIt.id);
+        if (
+          localMatch?.photoUrl &&
+          (localMatch.photoUrl.startsWith('data:') || localMatch.photoUrl.startsWith('blob:'))
+        ) {
+          return {
+            ...apiIt,
+            photoUrl: localMatch.photoUrl,
+            photoUrls: localMatch.photoUrls ?? [localMatch.photoUrl],
+          };
+        }
+        return apiIt;
+      });
+      return [...localNew, ...mergedApi];
+    }
+    return queue && queue.length > 0 ? queue : structuredClone(INITIAL_VERIFICATION_QUEUE);
   }, [apiItems, queue]);
 
   const list = useMemo(() => {
@@ -163,8 +202,12 @@ export default function PublicReportsFeedView() {
 
   const onEvidencePhoto = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setEvPhoto(URL.createObjectURL(file));
     e.target.value = '';
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => setEvPhoto(reader.result as string);
+      reader.readAsDataURL(file);
+    }
   };
 
   const submitEvidence = (e: FormEvent, item: VerificationItem) => {
@@ -249,7 +292,7 @@ export default function PublicReportsFeedView() {
           <div className="border-l-2 border-slate-300 pl-4">
             <dt className="text-sm font-medium text-slate-600">Paket Proyek Terpantau</dt>
             <dd className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
-              {DATASET_SUMMARY.uniqueProjects} paket
+              {totalProjectsCount} paket
             </dd>
           </div>
         </dl>
@@ -792,13 +835,29 @@ function ReportPhoto({
   alt: string;
   className?: string;
 }) {
-  const [err, setErr] = useState(false);
-  if (err) {
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setHasError(false);
+  }, [src]);
+
+  const handleError = () => {
+    // Fallback jika domain storage remote warta.id tidak bisa diakses
+    if (currentSrc.includes('storage.warta.id') || currentSrc.startsWith('http')) {
+      setCurrentSrc('/photos/rusun-rorotan.svg');
+    } else {
+      setHasError(true);
+    }
+  };
+
+  if (hasError) {
     return (
       <div className="flex aspect-16/10 w-full items-center justify-center gap-2 bg-slate-100 text-sm text-slate-600">
-        <ImageOff className="size-4" aria-hidden="true" /> Foto lapangan tidak dapat dimuat
+        <ImageOff className="size-4" aria-hidden="true" /> Foto bukti lapangan
       </div>
     );
   }
-  return <img src={src} alt={alt} onError={() => setErr(true)} className={className} />;
+  return <img src={currentSrc} alt={alt} onError={handleError} className={className} />;
 }

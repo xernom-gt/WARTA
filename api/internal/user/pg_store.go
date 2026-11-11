@@ -21,7 +21,7 @@ type PGStore struct {
 // NewPGStore wraps an existing connection pool.
 func NewPGStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
 
-const userColumns = `id, display_name, email, password_hash,
+const userColumns = `id, display_name, email, password_hash, role,
 	is_active, email_verified_at, created_at, updated_at`
 
 // Create inserts a new citizen. It assigns the UUID and timestamps that the
@@ -31,14 +31,17 @@ func (s *PGStore) Create(ctx context.Context, u *User) error {
 	if u.ID == "" {
 		u.ID = uuid.NewString()
 	}
+	if u.Role == "" {
+		u.Role = "warga"
+	}
 	now := time.Now().UTC()
 	u.CreatedAt, u.UpdatedAt = now, now
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, display_name, email, password_hash, is_active,
+		INSERT INTO users (id, display_name, email, password_hash, role, is_active,
 		                   email_verified_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		u.ID, u.DisplayName, u.Email, u.PasswordHash, u.IsActive,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		u.ID, u.DisplayName, u.Email, u.PasswordHash, u.Role, u.IsActive,
 		u.EmailVerifiedAt, u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -108,7 +111,7 @@ func (s *PGStore) UpdateDisplayName(ctx context.Context, id, displayName string)
 		RETURNING ` + userColumns
 	u := new(User)
 	err := s.pool.QueryRow(ctx, q, id, displayName).Scan(
-		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash,
+		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash, &u.Role,
 		&u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -133,7 +136,7 @@ func (s *PGStore) Deactivate(ctx context.Context, id string) (*User, error) {
 		RETURNING ` + userColumns
 	u := new(User)
 	err := s.pool.QueryRow(ctx, q, id).Scan(
-		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash,
+		&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash, &u.Role,
 		&u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -148,7 +151,7 @@ func (s *PGStore) Deactivate(ctx context.Context, id string) (*User, error) {
 // scanOne normalises "no rows" into ErrNotFound for every lookup query.
 func scanOne(row pgx.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash,
+	err := row.Scan(&u.ID, &u.DisplayName, &u.Email, &u.PasswordHash, &u.Role,
 		&u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

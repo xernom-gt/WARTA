@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   ArrowRight,
   BadgeAlert,
@@ -12,10 +12,43 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
+import { dtoToItem, verificationService } from '../../services/verification';
 import StatusBadge from '../common/StatusBadge';
 
 export default function AdminDashboardView() {
-  const { queue, projects, navigate, setIsCreateProjectOpen } = useWarta();
+  const { queue, projects, navigate, setIsCreateProjectOpen, setQueue } = useWarta();
+
+  useEffect(() => {
+    verificationService
+      .getQueue()
+      .then((res) => {
+        if (res.data && res.data.length > 0) {
+          const fetched = res.data.map(dtoToItem);
+          setQueue((prevQueue) =>
+            fetched.map((item) => {
+              const local = prevQueue.find((q) => q.id === item.id);
+              if (
+                local &&
+                (local.status === 'selesai' ||
+                  local.status === 'terverifikasi' ||
+                  local.status === 'ditolak' ||
+                  local.adminNote)
+              ) {
+                return {
+                  ...item,
+                  status: local.status,
+                  adminNote: local.adminNote ?? item.adminNote,
+                };
+              }
+              return item;
+            }),
+          );
+        }
+      })
+      .catch(() => {
+        // Abaikan jika offline / error
+      });
+  }, [setQueue]);
 
   // Hitung KPI Eksekutif
   const metrics = useMemo(() => {
