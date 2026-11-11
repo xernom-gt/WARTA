@@ -43,7 +43,37 @@ export const PROJECT_ID_MAP: Record<string, string> = {
   'proj-6': '11111111-1111-1111-1111-000000000006',
   'proj-7': '11111111-1111-1111-1111-000000000007',
   'proj-8': '11111111-1111-1111-1111-000000000008',
+  'proj-9': '11111111-1111-1111-1111-000000000009',
+  'proj-10': '11111111-1111-1111-1111-000000000010',
 };
+
+export const PROJECT_SUBJECT_PHOTOS: Record<string, string> = {
+  'proj-1': 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000001': 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+  'proj-2': 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000002': 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+  'proj-3': 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000003': 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=800&q=80',
+  'proj-4': 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000004': 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=800&q=80',
+  'proj-5': 'https://images.unsplash.com/photo-1578575437130-527eed3abbec?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000005': 'https://images.unsplash.com/photo-1578575437130-527eed3abbec?auto=format&fit=crop&w=800&q=80',
+  'proj-6': 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000006': 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=800&q=80',
+  'proj-7': 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000007': 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
+  'proj-8': 'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000008': 'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=800&q=80',
+  'proj-9': 'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000009': 'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=800&q=80',
+  'proj-10': 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800&q=80',
+  '11111111-1111-1111-1111-000000000010': 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800&q=80',
+};
+
+export function getProjectSubjectPhoto(projectId?: string | null): string {
+  if (!projectId) return '/photos/rusun-rorotan.svg';
+  return PROJECT_SUBJECT_PHOTOS[projectId] || '/photos/rusun-rorotan.svg';
+}
 
 export const WARTA_PROJECTS: ProjectPackage[] = [
   {

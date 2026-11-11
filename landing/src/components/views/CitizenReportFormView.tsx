@@ -17,6 +17,7 @@ import {
   SAMPLE_DATA,
   WARTA_PROJECTS,
   getProject,
+  getProjectSubjectPhoto,
 } from '../../data/wartaData';
 import type {
   CitizenClaim,
@@ -182,41 +183,12 @@ export default function CitizenReportFormView() {
   }, [level, claimAddress, kelurahan, kecamatan, landmark, claimDraftKey]);
 
   // Pembersihan Blob URL ketika foto dihapus atau komponen unmount (bebas memory leak)
-  useEffect(() => {
-    return () => {
-      photos.forEach((ph) => {
-        if (ph.url.startsWith('blob:')) {
-          URL.revokeObjectURL(ph.url);
-        }
-      });
-    };
-  }, [photos]);
-
-  useEffect(() => {
-    return () => {
-      if (claimPhoto?.startsWith('blob:')) {
-        URL.revokeObjectURL(claimPhoto);
-      }
-    };
-  }, [claimPhoto]);
-
   const handleRemovePhoto = (indexToRemove: number) => {
-    setPhotos((prev) => {
-      const item = prev[indexToRemove];
-      if (item?.url.startsWith('blob:')) {
-        URL.revokeObjectURL(item.url);
-      }
-      return prev.filter((_, idx) => idx !== indexToRemove);
-    });
+    setPhotos((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const updateClaimPhoto = (nextUrl: string | null) => {
-    setClaimPhoto((prev) => {
-      if (prev?.startsWith('blob:')) {
-        URL.revokeObjectURL(prev);
-      }
-      return nextUrl;
-    });
+    setClaimPhoto(nextUrl);
   };
 
   const onProjectChange = (nextProjectId: string) => {
@@ -232,26 +204,35 @@ export default function CitizenReportFormView() {
     e.target.value = '';
 
     const newErrors: string[] = [];
-    const validAttachments: PhotoAttachment[] = [];
     const remainingSlots = 4 - photos.length;
+    const filesToRead = rawFiles.slice(0, remainingSlots);
 
-    for (const file of rawFiles.slice(0, remainingSlots)) {
+    for (const file of filesToRead) {
       if (file.size > 5 * 1024 * 1024) {
         newErrors.push(`File "${file.name}" melebihi batas 5 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
         continue;
       }
-      validAttachments.push({
-        name: file.name,
-        url: URL.createObjectURL(file),
-        file,
-      });
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setPhotos((prev) => {
+          if (prev.length >= 4) return prev;
+          return [
+            ...prev,
+            {
+              name: file.name,
+              url: dataUrl,
+              file,
+            },
+          ];
+        });
+      };
+      reader.readAsDataURL(file);
     }
 
     if (newErrors.length > 0) {
       setReportErrors((prev) => [...prev, ...newErrors]);
-    }
-    if (validAttachments.length > 0) {
-      setPhotos((prev) => [...prev, ...validAttachments]);
     }
   };
 
@@ -268,8 +249,12 @@ export default function CitizenReportFormView() {
     try {
       const res = await fetch(nextUrl);
       const blob = await res.blob();
-      const file = new File([blob], name, { type: 'image/svg+xml' });
-      setPhotos((prev) => [...prev, { name, url: nextUrl, file }]);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setPhotos((prev) => [...prev, { name, url: dataUrl }]);
+      };
+      reader.readAsDataURL(blob);
     } catch {
       setPhotos((prev) => [...prev, { name, url: nextUrl }]);
     }
@@ -685,36 +670,66 @@ export default function CitizenReportFormView() {
           </div>
         </div>
 
-        <div className="space-y-3 rounded-xl bg-slate-50 p-5">
-          <div>
-            <label
-              htmlFor="select-project-package"
-              className="mb-1.5 block text-sm font-semibold text-slate-800"
-            >
-              Pilih paket proyek yang diamati
-            </label>
-            <select
-              id="select-project-package"
-              disabled={Boolean(editingDraft) || submitting}
-              value={p.id}
-              onChange={(e) => onProjectChange(e.target.value)}
-              className={inputClass}
-            >
-              {WARTA_PROJECTS.map((proj) => (
-                <option key={proj.id} value={proj.id}>
-                  {proj.title} · #{proj.spseCode} ({proj.paguCompact})
-                </option>
-              ))}
-            </select>
+        {/* Kartu Subjek Proyek yang Dilaporkan dengan Foto & Info Lengkap */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+          <div className="relative aspect-21/9 sm:aspect-16/5 w-full overflow-hidden bg-slate-900">
+            <img
+              src={getProjectSubjectPhoto(p.id)}
+              alt={p.title}
+              className="size-full object-cover opacity-90 transition duration-500 hover:scale-105"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent" />
+            <div className="absolute bottom-3.5 left-4 right-4 flex flex-wrap items-end justify-between gap-2 text-white">
+              <div className="max-w-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="rounded-md bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-xs">
+                    Subjek Proyek
+                  </span>
+                  <span className="text-xs font-semibold text-slate-200">
+                    SPSE #{p.spseCode}
+                  </span>
+                </div>
+                <h2 className="text-base sm:text-xl font-bold leading-tight drop-shadow-xs">
+                  {p.title}
+                </h2>
+              </div>
+              <div className="rounded-lg bg-white/20 px-3 py-1.5 text-xs font-bold backdrop-blur-xs text-white">
+                {p.paguCompact}
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
-            <span>
-              Satker: <b className="text-slate-800">{p.satker}</b>
-            </span>
-            <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {p.precisionBadge}: {p.locationDesc}
-            </span>
+          <div className="p-4 sm:p-5 bg-slate-50/70 border-t border-slate-100 space-y-3">
+            <div>
+              <label
+                htmlFor="select-project-package"
+                className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+              >
+                Pilih Paket Proyek Pengamatan
+              </label>
+              <select
+                id="select-project-package"
+                disabled={Boolean(editingDraft) || submitting}
+                value={p.id}
+                onChange={(e) => onProjectChange(e.target.value)}
+                className={inputClass}
+              >
+                {WARTA_PROJECTS.map((proj) => (
+                  <option key={proj.id} value={proj.id}>
+                    {proj.title} · #{proj.spseCode} ({proj.paguCompact})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 pt-1">
+              <span>
+                Satker: <b className="text-slate-800">{p.satker}</b>
+              </span>
+              <span className="rounded-md bg-white border border-slate-200 px-2.5 py-1 font-semibold text-slate-700">
+                {p.precisionBadge}: {p.locationDesc}
+              </span>
+            </div>
           </div>
         </div>
       </section>
@@ -1076,7 +1091,11 @@ export default function CitizenReportFormView() {
                   accept="image/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) updateClaimPhoto(URL.createObjectURL(f));
+                    if (f) {
+                      const reader = new FileReader();
+                      reader.onload = () => updateClaimPhoto(reader.result as string);
+                      reader.readAsDataURL(f);
+                    }
                   }}
                   className="sr-only"
                 />

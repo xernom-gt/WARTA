@@ -547,6 +547,9 @@ export default function CitizenAccountView() {
                           alt={`Bukti lapangan ${idx + 1}`}
                           className="size-full object-cover"
                           loading="lazy"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = '/photos/rusun-rorotan.svg';
+                          }}
                         />
                       </div>
                     ))}
