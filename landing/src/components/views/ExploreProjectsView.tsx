@@ -12,6 +12,7 @@ import { useWarta } from '../../context/WartaContext';
 import { DATASET_SUMMARY, WARTA_PROJECTS } from '../../data/wartaData';
 import type { PrecisionLevel, ProjectPackage, ReportStatus } from '../../types/warta';
 import JakartaSvgMap from '../map/JakartaSvgMap';
+import OpenStreetMapExplorer from '../map/OpenStreetMapExplorer';
 import MapFloatingSheet from '../map/MapFloatingSheet';
 import ProjectCard from '../project/ProjectCard';
 import {
@@ -95,6 +96,7 @@ export default function ExploreProjectsView() {
   const [paguRange, setPaguRange] = useState('Semua');
   const [sort, setSort] = useState('-created_at');
   const [onlyRetender, setOnlyRetender] = useState(false);
+  const [mapView, setMapView] = useState<'osm' | 'svg'>('osm');
 
   // API State
   const [apiProjects, setApiProjects] = useState<ProjectPackage[] | null>(null);
@@ -163,8 +165,9 @@ export default function ExploreProjectsView() {
           const mapped = projectRes.value.data.map((p) =>
             toProjectPackage(p, pinCoordsMap.get(p.id)),
           );
-          setApiProjects(mapped);
-          setTotalProjects(projectRes.value.meta.total);
+          // Jika DB backend belum memiliki data proyek (tabel kosong), gunakan fallback sample data agar peta tidak kosong
+          setApiProjects(mapped.length > 0 ? mapped : null);
+          setTotalProjects(mapped.length > 0 ? projectRes.value.meta.total : WARTA_PROJECTS.length);
         } else {
           // If API fails or is offline, fallback to null (activates mock fallback)
           setApiProjects(null);
@@ -487,13 +490,48 @@ export default function ExploreProjectsView() {
               </div>
             ) : (
               <>
-                <JakartaSvgMap
-                  projects={list}
-                  selectedId={selectedProjectId}
-                  onSelect={selectProject}
-                  gpsDenied={gpsDenied}
-                  className={loading ? 'animate-pulse opacity-60' : ''}
-                />
+                {mapView === 'osm' ? (
+                  <OpenStreetMapExplorer
+                    projects={list}
+                    selectedId={selectedProjectId}
+                    onSelect={selectProject}
+                    className={loading ? 'animate-pulse opacity-60' : ''}
+                  />
+                ) : (
+                  <JakartaSvgMap
+                    projects={list}
+                    selectedId={selectedProjectId}
+                    onSelect={selectProject}
+                    gpsDenied={gpsDenied}
+                    className={loading ? 'animate-pulse opacity-60' : ''}
+                  />
+                )}
+
+                {/* Toggle Mode Peta (OSM vs Vektor) */}
+                <div className="absolute top-3 left-3 z-10 flex rounded-xl border border-slate-200 bg-white/95 p-1 shadow-md backdrop-blur-xs">
+                  <button
+                    type="button"
+                    onClick={() => setMapView('osm')}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                      mapView === 'osm'
+                        ? 'bg-brand text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    OpenStreetMap
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapView('svg')}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                      mapView === 'svg'
+                        ? 'bg-brand text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Vektor DKI
+                  </button>
+                </div>
                 <div className="absolute top-3 right-3 space-y-1.5 rounded-xl border border-slate-200 bg-white/95 p-3 text-xs text-slate-700 shadow-xs backdrop-blur-xs">
                   <p className="flex items-center gap-1.5 font-semibold text-slate-900">
                     <Layers className="size-3.5 text-brand" aria-hidden="true" /> Keterangan pin

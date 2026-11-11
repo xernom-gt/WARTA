@@ -18,7 +18,7 @@ services:
     ports:
       # Host 5433 -> container 5432, so the compose database never fights the
       # host's own PostgreSQL on 5432. Point DATABASE_URL at 5433.
-      - "5433:5432"
+      - "5435:5432"
     volumes:
       - warta-db-data:/var/lib/postgresql/data
     healthcheck:

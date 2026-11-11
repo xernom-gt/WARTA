@@ -70,7 +70,7 @@ type Config struct {
 
 const (
 	defaultPort          = "3000"
-	defaultDatabaseURL   = "postgres://warta:warta@localhost:5433/warta?sslmode=disable"
+	defaultDatabaseURL   = "postgres://warta:warta@localhost:5435/warta?sslmode=disable"
 	defaultJWTTTLSeconds = 3600
 	defaultLoginRate     = 10
 	defaultRegisterRate  = 5

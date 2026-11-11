@@ -73,22 +73,83 @@ const defaultProfile = (displayName: string, email = 'warga.kebonjeruk@contoh.id
   createdAt: 'Januari 2025',
 });
 
-const initialState = (): WartaState => ({
-  currentUser: SAMPLE_DATA ? CURRENT_USER : null,
-  userProfile: SAMPLE_DATA ? defaultProfile(CURRENT_USER) : null,
-  role: SAMPLE_DATA ? 'other' : 'guest',
-  mapCondition: 'normal',
-  activeScreen: 'aduan',
-  selectedProjectId: null,
-  selectedReportId: null,
-  editingDraftId: null,
-  compactRupiah: true,
-  queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
-  myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
-  myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
-  voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
-  loginOpen: false,
-});
+const VALID_SCREENS: ReadonlySet<ActiveScreen> = new Set([
+  'peta',
+  'aduan',
+  'detail',
+  'lapor',
+  'verifikasi',
+  'klaim',
+  'profil',
+]);
+
+function parseHashLocation(): { screen: ActiveScreen; projectId: string | null; reportId: string | null } {
+  if (typeof window === 'undefined') return { screen: 'aduan', projectId: null, reportId: null };
+  const raw = window.location.hash.replace(/^#\/?/, '').trim();
+  if (!raw) return { screen: 'aduan', projectId: null, reportId: null };
+
+  const [pathPart, queryPart] = raw.split('?');
+  const candidateScreen = pathPart.split('/')[0] as ActiveScreen;
+  const screen = VALID_SCREENS.has(candidateScreen) ? candidateScreen : 'aduan';
+
+  let projectId: string | null = null;
+  let reportId: string | null = null;
+
+  if (queryPart) {
+    const params = new URLSearchParams(queryPart);
+    const p = params.get('project') || params.get('projectId');
+    const r = params.get('report') || params.get('reportId');
+    if (p) projectId = p;
+    if (r) reportId = r;
+  }
+
+  return { screen, projectId, reportId };
+}
+
+function buildHash(screen: ActiveScreen, projectId?: string | null, reportId?: string | null): string {
+  let hash = `#${screen}`;
+  const params = new URLSearchParams();
+  if (projectId) params.set('project', projectId);
+  if (reportId) params.set('report', reportId);
+  const qs = params.toString();
+  return qs ? `${hash}?${qs}` : hash;
+}
+
+function getSavedProfile(): UserProfile | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('user_profile');
+    if (!raw) return null;
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
+}
+
+const initialState = (): WartaState => {
+  const loc = parseHashLocation();
+  const savedProfile = getSavedProfile();
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const profile = token ? savedProfile : null;
+  const user = profile?.displayName ?? (SAMPLE_DATA ? CURRENT_USER : null);
+
+  return {
+    currentUser: user,
+    userProfile: profile ?? (SAMPLE_DATA && user ? defaultProfile(user) : null),
+    role: user ? 'other' : 'guest',
+    mapCondition: 'normal',
+    activeScreen: loc.screen,
+    selectedProjectId: loc.projectId,
+    selectedReportId: loc.reportId,
+    editingDraftId: null,
+    compactRupiah: true,
+    queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
+    myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
+    myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
+    voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
+    loginOpen: false,
+  };
+};
 
 const WartaContext = createContext<WartaContextValue | null>(null);
 
@@ -108,22 +169,29 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     authService
       .getMe()
       .then((user) => {
+        const profile: UserProfile = {
+          id: user.id,
+          displayName: user.display_name,
+          email: user.email,
+          emailVerified: Boolean(user.email_verified_at),
+          isActive: user.is_active,
+          createdAt: user.created_at,
+        };
+        try {
+          localStorage.setItem('user_profile', JSON.stringify(profile));
+        } catch {
+          // ignore storage error
+        }
         setState((s) => ({
           ...s,
           currentUser: user.display_name,
-          userProfile: {
-            id: user.id,
-            displayName: user.display_name,
-            email: user.email,
-            emailVerified: Boolean(user.email_verified_at),
-            isActive: user.is_active,
-            createdAt: user.created_at,
-          },
+          userProfile: profile,
           role: 'other',
         }));
       })
       .catch(() => {
         localStorage.removeItem('token');
+        localStorage.removeItem('user_profile');
         setState((s) => ({
           ...s,
           currentUser: null,
@@ -133,6 +201,32 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Sync activeScreen with browser URL hash (Back/Forward/Ctrl+R support)
+  useEffect(() => {
+    const onHashChange = () => {
+      const loc = parseHashLocation();
+      setState((s) => {
+        if (
+          s.activeScreen === loc.screen &&
+          (loc.projectId === null || s.selectedProjectId === loc.projectId) &&
+          (loc.reportId === null || s.selectedReportId === loc.reportId)
+        ) {
+          return s;
+        }
+        return {
+          ...s,
+          activeScreen: loc.screen,
+          ...(loc.projectId !== null ? { selectedProjectId: loc.projectId } : {}),
+          ...(loc.reportId !== null ? { selectedReportId: loc.reportId } : {}),
+        };
+      });
+    };
+
+    window.addEventListener('hashchange', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, []);
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
       if (state.role === 'guest' || !state.currentUser)
@@ -210,6 +304,11 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         };
       }
 
+      try {
+        localStorage.setItem('user_profile', JSON.stringify(profile));
+      } catch {
+        // ignore storage quota error
+      }
       setState((s) => ({
         ...s,
         currentUser: profile.displayName,
@@ -245,6 +344,11 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         createdAt: new Date().toISOString(),
       };
 
+      try {
+        localStorage.setItem('user_profile', JSON.stringify(profile));
+      } catch {
+        // ignore storage error
+      }
       setState((s) => ({
         ...s,
         currentUser: profile.displayName,
@@ -271,6 +375,7 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       // Ignore network errors during logout
     } finally {
       localStorage.removeItem('token');
+      localStorage.removeItem('user_profile');
       setState((s) => ({
         ...s,
         currentUser: null,
@@ -292,20 +397,32 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         });
       },
       setMapCondition: (mapCondition) => patch({ mapCondition }),
-      navigate: (activeScreen, projectId, reportId) =>
+      navigate: (activeScreen, projectId, reportId) => {
+        const nextProjectId = projectId !== undefined ? projectId : (activeScreen === 'detail' || activeScreen === 'lapor' ? state.selectedProjectId : null);
+        const nextReportId = reportId !== undefined ? reportId : (activeScreen === 'aduan' ? state.selectedReportId : null);
+        const targetHash = buildHash(activeScreen, nextProjectId, nextReportId);
+        if (typeof window !== 'undefined' && window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
         patch({
           activeScreen,
           ...(projectId !== undefined ? { selectedProjectId: projectId } : {}),
           ...(reportId !== undefined ? { selectedReportId: reportId } : {}),
           ...(activeScreen !== 'lapor' ? { editingDraftId: null } : {}),
-        }),
+        });
+      },
       selectProject: (selectedProjectId) => patch({ selectedProjectId }),
       selectReport: (selectedReportId) => patch({ selectedReportId }),
       startEditDraft: (reportId) => {
         const found = state.myReports.find((r) => r.id === reportId);
+        const targetProjectId = found ? found.projectId : state.selectedProjectId;
+        const targetHash = buildHash('lapor', targetProjectId, null);
+        if (typeof window !== 'undefined' && window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
         patch({
           editingDraftId: reportId,
-          selectedProjectId: found ? found.projectId : state.selectedProjectId,
+          selectedProjectId: targetProjectId,
           activeScreen: 'lapor',
         });
       },
@@ -314,11 +431,19 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       login,
       register,
       updateDisplayName: (displayName) =>
-        setState((s) => ({
-          ...s,
-          currentUser: displayName,
-          userProfile: s.userProfile ? { ...s.userProfile, displayName } : defaultProfile(displayName),
-        })),
+        setState((s) => {
+          const nextProfile = s.userProfile ? { ...s.userProfile, displayName } : defaultProfile(displayName);
+          try {
+            localStorage.setItem('user_profile', JSON.stringify(nextProfile));
+          } catch {
+            // ignore
+          }
+          return {
+            ...s,
+            currentUser: displayName,
+            userProfile: nextProfile,
+          };
+        }),
       verifyCurrentEmail: () =>
         setState((s) => ({
           ...s,
