@@ -4,18 +4,19 @@ import type {
   CitizenClaim,
   CitizenReport,
   MapCondition,
+  ProjectPackage,
+  ReportStatus,
   UserRole,
   VerificationItem,
   VoteChoice,
   VoteRecord,
 } from '../types/warta';
 import {
-  CURRENT_USER,
   INITIAL_MY_CLAIMS,
   INITIAL_MY_REPORTS,
   INITIAL_VERIFICATION_QUEUE,
   INITIAL_VOTE_HISTORY,
-  SAMPLE_DATA,
+  WARTA_PROJECTS,
 } from '../data/wartaData';
 import { authService, type UserPrivate } from '../services/auth';
 
@@ -26,7 +27,10 @@ interface WartaState {
   mapCondition: MapCondition;
   activeScreen: ActiveScreen;
   selectedProjectId: string | null;
+  editingProjectId: string | null;
+  isCreateProjectOpen: boolean;
   compactRupiah: boolean;
+  projects: ProjectPackage[];
   queue: VerificationItem[];
   myReports: CitizenReport[];
   myClaims: CitizenClaim[];
@@ -39,6 +43,8 @@ interface WartaContextValue extends WartaState {
   setMapCondition: (c: MapCondition) => void;
   navigate: (s: ActiveScreen, projectId?: string) => void;
   selectProject: (id: string | null) => void;
+  setEditingProjectId: (id: string | null) => void;
+  setIsCreateProjectOpen: (open: boolean) => void;
   toggleRupiah: () => void;
   login: (displayName: string, userObj?: UserPrivate) => void;
   logout: () => void;
@@ -50,23 +56,91 @@ interface WartaContextValue extends WartaState {
   reset: () => void;
   setQueue: (items: VerificationItem[]) => void;
   recordVote: (record: VoteRecord, updatedItem?: VerificationItem) => void;
+  // Fitur Utama Admin:
+  updateProject: (id: string, partial: Partial<ProjectPackage>) => void;
+  addProject: (newProj: ProjectPackage) => void;
+  deleteProject: (id: string) => void;
+  updateReportStatus: (itemId: string, status: ReportStatus, adminNote?: string) => void;
 }
 
+const STORAGE_KEY_PROJECTS = 'warta_admin_projects_v5';
+const STORAGE_KEY_QUEUE = 'warta_admin_queue_v5';
+const STORAGE_KEY_SCREEN = 'warta_admin_screen_v5';
+
+const loadPersistedProjects = (): ProjectPackage[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PROJECTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Smart merge: Pastikan 10 proyek WARTA_PROJECTS selalu ada.
+        // Jika ada editan admin, timpa dengan data editan.
+        // Proyek baru tambahan admin (custom ID) disertakan di awal.
+        const merged: ProjectPackage[] = [];
+
+        // 1. Proyek buatan admin (ID yang tidak ada di WARTA_PROJECTS)
+        const customProjects = parsed.filter(
+          (p: ProjectPackage) => !WARTA_PROJECTS.some((wp) => wp.id === p.id),
+        );
+        merged.push(...customProjects);
+
+        // 2. 10 Proyek kanonik DKI Jakarta
+        for (const wp of WARTA_PROJECTS) {
+          const edited = parsed.find((p: ProjectPackage) => p.id === wp.id);
+          merged.push(edited ? { ...wp, ...edited } : structuredClone(wp));
+        }
+
+        return merged;
+      }
+    }
+  } catch {
+    // Abaikan jika storage disabled/corrupt
+  }
+  return structuredClone(WARTA_PROJECTS);
+};
+
+const loadPersistedQueue = (): VerificationItem[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_QUEUE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // Abaikan
+  }
+  return structuredClone(INITIAL_VERIFICATION_QUEUE);
+};
+
+const loadPersistedScreen = (): ActiveScreen => {
+  try {
+    const s = sessionStorage.getItem(STORAGE_KEY_SCREEN) as ActiveScreen | null;
+    if (s && ['dashboard', 'aduan', 'proyek', 'peta', 'detail', 'verifikasi'].includes(s)) {
+      return s;
+    }
+  } catch {
+    // Abaikan
+  }
+  return 'dashboard';
+};
+
 const initialState = (): WartaState => ({
-  currentUser: SAMPLE_DATA ? CURRENT_USER : null,
+  currentUser: 'Admin Pengelola (Dinas PUPR)',
   authUser: null,
-  role: SAMPLE_DATA ? 'other' : 'guest',
+  role: 'other',
   mapCondition: 'normal',
-  activeScreen: 'verifikasi',
+  activeScreen: loadPersistedScreen(),
   selectedProjectId: null,
+  editingProjectId: null,
+  isCreateProjectOpen: false,
   compactRupiah: true,
-  queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
-  myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
-  myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
-  voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
+  projects: loadPersistedProjects(),
+  queue: loadPersistedQueue(),
+  myReports: structuredClone(INITIAL_MY_REPORTS),
+  myClaims: structuredClone(INITIAL_MY_CLAIMS),
+  voteHistory: structuredClone(INITIAL_VOTE_HISTORY),
   loginOpen: false,
 });
-
 
 const WartaContext = createContext<WartaContextValue | null>(null);
 
@@ -77,6 +151,33 @@ export function WartaProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WartaState>(initialState);
 
   const patch = useCallback((p: Partial<WartaState>) => setState((s) => ({ ...s, ...p })), []);
+
+  // Simpan projects ke localStorage saat ada perubahan
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(state.projects));
+    } catch {
+      // Abaikan quota
+    }
+  }, [state.projects]);
+
+  // Simpan queue ke localStorage saat ada perubahan
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_QUEUE, JSON.stringify(state.queue));
+    } catch {
+      // Abaikan quota
+    }
+  }, [state.queue]);
+
+  // Simpan screen ke sessionStorage agar saat refresh tidak mental
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(STORAGE_KEY_SCREEN, state.activeScreen);
+    } catch {
+      // Abaikan
+    }
+  }, [state.activeScreen]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -98,26 +199,23 @@ export function WartaProvider({ children }: { children: ReactNode }) {
 
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
-      if (state.role === 'guest' || !state.currentUser)
-        return { allowed: false, reason: 'Masuk dengan akun warga untuk memberi suara.' };
-      if (state.role === 'owner' || state.currentUser === item.authorDisplayName)
-        return { allowed: false, reason: OWNER_WARNING };
-      if (item.voters.includes(state.currentUser))
-        return { allowed: false, reason: 'Anda sudah memberi 1 suara untuk item ini.' };
-      if (item.status !== 'menunggu') return { allowed: false, reason: 'Verifikasi item ini sudah selesai.' };
+      const user = state.currentUser;
+      if (!user) return { allowed: false, reason: 'Masuk untuk mencatat suara.' };
+      if (item.authorDisplayName === user) return { allowed: false, reason: OWNER_WARNING };
+      if (item.voters.includes(user)) return { allowed: false, reason: 'Anda sudah mencatat suara untuk aduan ini.' };
+      if (item.status === 'terverifikasi' || item.status === 'diterima' || item.status === 'ditolak') {
+        return { allowed: false, reason: 'Aduan ini sudah mencapai keputusan final.' };
+      }
       return { allowed: true };
     },
-    [state.role, state.currentUser],
+    [state.currentUser],
   );
 
   const vote = useCallback(
     (itemId: string, choice: VoteChoice) => {
       setState((s) => {
-        const user = s.currentUser;
-        if (!user) return s;
-        const target = s.queue.find(
-          (it) => it.id === itemId && !it.voters.includes(user) && it.status === 'menunggu',
-        );
+        const user = s.currentUser ?? 'Admin';
+        const target = s.queue.find((it) => it.id === itemId);
         if (!target) return s;
         const votesAgree = target.votesAgree + (choice === 'setuju' ? 1 : 0);
         const votesDisagree = target.votesDisagree + (choice === 'tidak_setuju' ? 1 : 0);
@@ -165,14 +263,79 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  // Mutasi Proyek Admin
+  const updateProject = useCallback((id: string, partial: Partial<ProjectPackage>) => {
+    setState((s) => {
+      const exists = s.projects.some((p) => p.id === id);
+      if (exists) {
+        return {
+          ...s,
+          projects: s.projects.map((p) => (p.id === id ? { ...p, ...partial } : p)),
+        };
+      }
+      // Jika belum ada di state.projects (misal fallback dari WARTA_PROJECTS)
+      const base = WARTA_PROJECTS.find((p) => p.id === id);
+      if (base) {
+        return {
+          ...s,
+          projects: [...s.projects, { ...base, ...partial }],
+        };
+      }
+      return s;
+    });
+  }, []);
+
+  const addProject = useCallback((newProj: ProjectPackage) => {
+    setState((s) => ({
+      ...s,
+      projects: [newProj, ...s.projects],
+    }));
+  }, []);
+
+  const deleteProject = useCallback((id: string) => {
+    setState((s) => ({
+      ...s,
+      projects: s.projects.filter((p) => p.id !== id),
+      selectedProjectId: s.selectedProjectId === id ? null : s.selectedProjectId,
+    }));
+  }, []);
+
+  // Mutasi Status Aduan Admin (Menunggu -> Diproses -> Selesai -> Ditolak)
+  const updateReportStatus = useCallback((itemId: string, status: ReportStatus, adminNote?: string) => {
+    setState((s) => ({
+      ...s,
+      queue: s.queue.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              status,
+              ...(adminNote !== undefined ? { adminNote } : {}),
+            }
+          : item,
+      ),
+    }));
+  }, []);
+
   const value = useMemo<WartaContextValue>(
     () => ({
       ...state,
-      setRole: (role) => patch({ role, currentUser: role === 'guest' ? null : state.currentUser ?? CURRENT_USER }),
+      setRole: (role) =>
+        patch({
+          role,
+          currentUser: role === 'guest' ? null : state.currentUser ?? 'Admin Pengelola (Dinas PUPR)',
+        }),
       setMapCondition: (mapCondition) => patch({ mapCondition }),
-      navigate: (activeScreen, projectId) =>
-        patch({ activeScreen, ...(projectId ? { selectedProjectId: projectId } : {}) }),
+      navigate: (activeScreen, projectId) => {
+        try {
+          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        } catch {
+          // Abaikan
+        }
+        patch({ activeScreen, ...(projectId ? { selectedProjectId: projectId } : {}) });
+      },
       selectProject: (selectedProjectId) => patch({ selectedProjectId }),
+      setEditingProjectId: (editingProjectId) => patch({ editingProjectId }),
+      setIsCreateProjectOpen: (isCreateProjectOpen) => patch({ isCreateProjectOpen }),
       toggleRupiah: () => setState((s) => ({ ...s, compactRupiah: !s.compactRupiah })),
       login: (currentUser, userObj) =>
         patch({
@@ -196,13 +359,21 @@ export function WartaProvider({ children }: { children: ReactNode }) {
         })),
       addClaim: (c, item) =>
         setState((s) => ({ ...s, myClaims: [c, ...s.myClaims], queue: [item, ...s.queue] })),
-      reset: () => setState(initialState()),
+      reset: () => {
+        localStorage.removeItem(STORAGE_KEY_PROJECTS);
+        localStorage.removeItem(STORAGE_KEY_QUEUE);
+        sessionStorage.removeItem(STORAGE_KEY_SCREEN);
+        setState(initialState());
+      },
       setQueue,
       recordVote,
+      updateProject,
+      addProject,
+      deleteProject,
+      updateReportStatus,
     }),
-    [state, patch, vote, canVote, setQueue, recordVote],
+    [state, patch, vote, canVote, setQueue, recordVote, updateProject, addProject, deleteProject, updateReportStatus],
   );
-
 
   return <WartaContext.Provider value={value}>{children}</WartaContext.Provider>;
 }

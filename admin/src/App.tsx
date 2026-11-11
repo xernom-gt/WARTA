@@ -1,31 +1,39 @@
+import { useEffect } from 'react';
 import { WartaProvider, useWarta } from './context/WartaContext';
 import { SAMPLE_DATA } from './data/wartaData';
-import CitizenLoginModal from './components/common/CitizenLoginModal';
 import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
 import DevSimulatorBar from './components/layout/DevSimulatorBar';
 import Footer from './components/layout/Footer';
 import Header from './components/layout/Header';
 import ProjectDetailModal from './components/project/ProjectDetailModal';
-import CitizenProfileView from './components/views/CitizenProfileView';
-import ClaimLocationView from './components/views/ClaimLocationView';
+import ProjectEditModal from './components/project/ProjectEditModal';
+import AdminDashboardView from './components/views/AdminDashboardView';
+import AdminProjectsView from './components/views/AdminProjectsView';
 import MapExplorerView from './components/views/MapExplorerView';
-import ReportFormView from './components/views/ReportFormView';
 import VerificationQueueView from './components/views/VerificationQueueView';
 
 function Screen() {
   const { activeScreen } = useWarta();
+
+  // Reset scroll ke puncak setiap kali berpindah tab
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [activeScreen]);
+
   switch (activeScreen) {
+    case 'aduan':
+    case 'verifikasi':
     case 'lapor':
-      return <ReportFormView />;
     case 'klaim':
-      return <ClaimLocationView />;
+      return <VerificationQueueView />;
+    case 'proyek':
+      return <AdminProjectsView />;
     case 'peta':
     case 'detail':
       return <MapExplorerView />;
-    case 'profil':
-      return <CitizenProfileView />;
+    case 'dashboard':
     default:
-      return <VerificationQueueView />;
+      return <AdminDashboardView />;
   }
 }
 
@@ -40,7 +48,7 @@ export default function App() {
         </main>
         <Footer />
         <ProjectDetailModal />
-        <CitizenLoginModal />
+        <ProjectEditModal />
         <ScrollPositionIndicator />
       </div>
     </WartaProvider>

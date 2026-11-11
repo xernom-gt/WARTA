@@ -23,6 +23,7 @@ interface Props {
 
 /**
  * Peta Interaktif OpenStreetMap (OSM) via Leaflet untuk Admin & Auditor.
+ * Mendukung drag pin presisi, deteksi GPS, reverse geocoding, dan tombol Reset Lokasi.
  */
 export default function MiniPinMap({
   value,

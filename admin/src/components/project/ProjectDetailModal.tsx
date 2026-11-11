@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, Camera, Database, Loader2, MapPinned, Users, X } from 'lucide-react';
+import { Building2, Camera, Database, Edit3, Loader2, MapPinned, Users, X } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { getProject } from '../../data/wartaData';
 import type { FailedTender, RiskFlag, SubLocation } from '../../types/warta';
@@ -18,7 +18,7 @@ import {
 const NO_CONTRACT = 'Nilai kontrak belum tersedia di sumber publik.';
 
 export default function ProjectDetailModal() {
-  const { activeScreen, selectedProjectId, navigate, compactRupiah, queue } = useWarta();
+  const { activeScreen, selectedProjectId, navigate, compactRupiah, queue, setEditingProjectId, projects } = useWarta();
   const [liveDetail, setLiveDetail] = useState<ProjectDetailDTO | null>(null);
   const [liveTenders, setLiveTenders] = useState<TenderDTO[]>([]);
   const [liveLocations, setLiveLocations] = useState<LocationDTO[]>([]);
@@ -57,7 +57,7 @@ export default function ProjectDetailModal() {
 
   let fallbackProject;
   try {
-    fallbackProject = getProject(selectedProjectId);
+    fallbackProject = projects.find((x) => x.id === selectedProjectId) ?? getProject(selectedProjectId);
   } catch {
     fallbackProject = null;
   }
@@ -154,14 +154,26 @@ export default function ProjectDetailModal() {
 
             <p className="mt-0.5 font-mono text-sm text-slate-600">Kode tender #{p.spseCode}</p>
           </div>
-          <button
-            id="detail-close"
-            onClick={() => navigate('peta')}
-            className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-            aria-label="Tutup detail"
-          >
-            <X className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setEditingProjectId(p.id);
+                navigate('peta');
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand/10 px-3.5 py-2 text-xs font-bold text-brand hover:bg-brand hover:text-white transition cursor-pointer"
+            >
+              <Edit3 className="size-3.5" />
+              Edit Data
+            </button>
+            <button
+              id="detail-close"
+              onClick={() => navigate('peta')}
+              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 cursor-pointer"
+              aria-label="Tutup detail"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-8 p-6 sm:p-8">
