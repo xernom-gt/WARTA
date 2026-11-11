@@ -17,19 +17,19 @@ export const SAMPLE_DATA =
   (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('sample') === '1');
 
 export const DATASET_SUMMARY = {
-  totalRawPackages: 122,
-  uniqueProjects: 118,
-  duplicateGroupsMerged: 4,
-  duplicateRowsCount: 8,
-  multiYearPackages: 25,
-  multiLocationPackages: 5,
-  multiCityPackages: 14,
-  missingContractCount: 19,
+  totalRawPackages: 10,
+  uniqueProjects: 10,
+  duplicateGroupsMerged: 0,
+  duplicateRowsCount: 0,
+  multiYearPackages: 3,
+  multiLocationPackages: 2,
+  multiCityPackages: 1,
+  missingContractCount: 2,
   precisionBreakdown: {
-    kabupatenKota: 91,
-    alamatRuas: 16,
-    desaKelurahan: 12,
-    kecamatan: 3,
+    kabupatenKota: 4,
+    alamatRuas: 3,
+    desaKelurahan: 2,
+    kecamatan: 1,
     titikPasti: 0,
   },
 };

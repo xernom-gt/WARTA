@@ -126,6 +126,22 @@ function getSavedProfile(): UserProfile | null {
   }
 }
 
+const STORAGE_KEY_QUEUE = 'warta_citizen_queue_v1';
+
+const loadPersistedQueue = (): VerificationItem[] => {
+  if (typeof window === 'undefined') return structuredClone(INITIAL_VERIFICATION_QUEUE);
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_QUEUE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // Abaikan
+  }
+  return structuredClone(INITIAL_VERIFICATION_QUEUE);
+};
+
 const initialState = (): WartaState => {
   const loc = parseHashLocation();
   const savedProfile = getSavedProfile();
@@ -143,10 +159,10 @@ const initialState = (): WartaState => {
     selectedReportId: loc.reportId,
     editingDraftId: null,
     compactRupiah: true,
-    queue: SAMPLE_DATA ? structuredClone(INITIAL_VERIFICATION_QUEUE) : [],
-    myReports: SAMPLE_DATA ? structuredClone(INITIAL_MY_REPORTS) : [],
-    myClaims: SAMPLE_DATA ? structuredClone(INITIAL_MY_CLAIMS) : [],
-    voteHistory: SAMPLE_DATA ? structuredClone(INITIAL_VOTE_HISTORY) : [],
+    queue: loadPersistedQueue(),
+    myReports: structuredClone(INITIAL_MY_REPORTS),
+    myClaims: structuredClone(INITIAL_MY_CLAIMS),
+    voteHistory: structuredClone(INITIAL_VOTE_HISTORY),
     loginOpen: false,
   };
 };
@@ -160,6 +176,15 @@ export function WartaProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WartaState>(initialState);
 
   const patch = useCallback((p: Partial<WartaState>) => setState((s) => ({ ...s, ...p })), []);
+
+  // Simpan queue ke localStorage saat ada perubahan
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_QUEUE, JSON.stringify(state.queue));
+    } catch {
+      // Abaikan quota
+    }
+  }, [state.queue]);
 
   // Restore authenticated session from localStorage JWT
   useEffect(() => {

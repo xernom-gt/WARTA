@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
-import { DATASET_SUMMARY, WARTA_PROJECTS } from '../../data/wartaData';
+import { DATASET_SUMMARY, INITIAL_VERIFICATION_QUEUE, WARTA_PROJECTS } from '../../data/wartaData';
 import type { VerificationItem } from '../../types/warta';
 import {
   reportsService,
@@ -105,26 +105,27 @@ export default function PublicReportsFeedView() {
     return () => controller.abort();
   }, [projectFilter, status, type]);
 
-  const activeQueue = useMemo(() => {
-    if (apiItems === null) return queue;
-    // Satukan laporan lokal (khususnya yang baru diinput warga dengan foto) ke dalam antrean
-    const apiIds = new Set(apiItems.map((it) => it.id));
-    const localNew = queue.filter((it) => !apiIds.has(it.id));
-    const mergedApi = apiItems.map((apiIt) => {
-      const localMatch = queue.find((qIt) => qIt.id === apiIt.id);
-      if (
-        localMatch?.photoUrl &&
-        (localMatch.photoUrl.startsWith('data:') || localMatch.photoUrl.startsWith('blob:'))
-      ) {
-        return {
-          ...apiIt,
-          photoUrl: localMatch.photoUrl,
-          photoUrls: localMatch.photoUrls ?? [localMatch.photoUrl],
-        };
-      }
-      return apiIt;
-    });
-    return [...localNew, ...mergedApi];
+  const activeQueue: VerificationItem[] = useMemo(() => {
+    if (apiItems && apiItems.length > 0) {
+      const apiIds = new Set(apiItems.map((it) => it.id));
+      const localNew = queue.filter((it) => !apiIds.has(it.id));
+      const mergedApi = apiItems.map((apiIt) => {
+        const localMatch = queue.find((qIt) => qIt.id === apiIt.id);
+        if (
+          localMatch?.photoUrl &&
+          (localMatch.photoUrl.startsWith('data:') || localMatch.photoUrl.startsWith('blob:'))
+        ) {
+          return {
+            ...apiIt,
+            photoUrl: localMatch.photoUrl,
+            photoUrls: localMatch.photoUrls ?? [localMatch.photoUrl],
+          };
+        }
+        return apiIt;
+      });
+      return [...localNew, ...mergedApi];
+    }
+    return queue && queue.length > 0 ? queue : structuredClone(INITIAL_VERIFICATION_QUEUE);
   }, [apiItems, queue]);
 
   const list = useMemo(() => {
@@ -271,7 +272,7 @@ export default function PublicReportsFeedView() {
           <div className="border-l-2 border-slate-300 pl-4">
             <dt className="text-sm font-medium text-slate-600">Paket Proyek Terpantau</dt>
             <dd className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
-              {DATASET_SUMMARY.uniqueProjects} paket
+              {WARTA_PROJECTS.length} paket
             </dd>
           </div>
         </dl>

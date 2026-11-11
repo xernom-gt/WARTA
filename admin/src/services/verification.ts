@@ -1,5 +1,44 @@
 import { api } from './api';
-import type { VoteChoice } from '../types/warta';
+import type { PrecisionLevel, VerificationItem, VoteChoice } from '../types/warta';
+
+export function dtoToItem(dto: VerificationItemDTO): VerificationItem {
+  const isExifValid = dto.exif_status === 'valid';
+  return {
+    id: dto.id,
+    projectId: dto.project_id,
+    projectTitle: dto.project_title,
+    spseCode: dto.spse_code,
+    satker: dto.satker,
+    paguCompact: dto.pagu_amount ? `Rp ${dto.pagu_amount}` : '-',
+    itemType: dto.item_type,
+    categoryLabel: dto.category_label || (dto.item_type === 'klaim_lokasi' ? 'Klaim Titik Lokasi' : 'Kondisi Proyek'),
+    authorDisplayName: dto.author_display_name,
+    createdAt: dto.created_at,
+    distanceFromProject:
+      dto.distance_from_project_m != null
+        ? `${Math.round(dto.distance_from_project_m)}m dari proyek`
+        : undefined,
+    exifValid: isExifValid,
+    exifNotice: dto.exif_notice ?? undefined,
+    exifStatus: dto.exif_status,
+    narrative: dto.narrative || '-',
+    proposedAddress: dto.proposed_address || '-',
+    proposedPrecision: (dto.proposed_precision as PrecisionLevel) || undefined,
+    coordinates: {
+      lat: dto.latitude ?? 0,
+      lng: dto.longitude ?? 0,
+    },
+    photoUrl: dto.photo_url || '',
+    votesAgree: dto.votes_agree,
+    votesDisagree: dto.votes_disagree,
+    targetVotes: dto.target_votes,
+    voters: dto.voters ?? [],
+    status: (dto.admin_status as VerificationItem['status']) || (dto.status as VerificationItem['status']),
+    adminNote: dto.admin_note ?? undefined,
+    reportId: dto.report_id,
+    claimId: dto.claim_id,
+  };
+}
 
 export interface VerificationItemDTO {
   id: string;
