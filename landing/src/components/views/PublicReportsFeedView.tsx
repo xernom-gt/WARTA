@@ -27,6 +27,7 @@ import {
   reportToVerificationItem,
   apiItemToVerificationItem,
 } from '../../services/reports';
+import { projectsService } from '../../services/projects';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
 
@@ -57,6 +58,23 @@ export default function PublicReportsFeedView() {
   const [sort, setSort] = useState<SortKey>('terbaru');
   const [feedState, setFeedState] = useState<FeedState>('ready');
   const [apiItems, setApiItems] = useState<VerificationItem[] | null>(null);
+  const [totalProjectsCount, setTotalProjectsCount] = useState<number>(WARTA_PROJECTS.length);
+
+  // Ambil jumlah proyek riil dari API /projects
+  useEffect(() => {
+    projectsService
+      .listProjects({ limit: 100 })
+      .then((res) => {
+        if (res.meta && typeof res.meta.total === 'number') {
+          setTotalProjectsCount(res.meta.total);
+        } else if (res.data && res.data.length > 0) {
+          setTotalProjectsCount(res.data.length);
+        }
+      })
+      .catch(() => {
+        // Abaikan jika offline, tetap gunakan WARTA_PROJECTS.length
+      });
+  }, []);
 
   // Form tambah bukti pendukung (POST /reports/{report_id}/evidences)
   const [evDesc, setEvDesc] = useState('');
@@ -106,9 +124,11 @@ export default function PublicReportsFeedView() {
   }, [projectFilter, status, type]);
 
   const activeQueue: VerificationItem[] = useMemo(() => {
-    if (apiItems && apiItems.length > 0) {
+    if (apiItems !== null) {
       const apiIds = new Set(apiItems.map((it) => it.id));
-      const localNew = queue.filter((it) => !apiIds.has(it.id));
+      const localNew = queue.filter(
+        (it) => !apiIds.has(it.id) && !it.id.startsWith('ver-') && !it.id.startsWith('ev-'),
+      );
       const mergedApi = apiItems.map((apiIt) => {
         const localMatch = queue.find((qIt) => qIt.id === apiIt.id);
         if (
@@ -272,7 +292,7 @@ export default function PublicReportsFeedView() {
           <div className="border-l-2 border-slate-300 pl-4">
             <dt className="text-sm font-medium text-slate-600">Paket Proyek Terpantau</dt>
             <dd className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
-              {WARTA_PROJECTS.length} paket
+              {totalProjectsCount} paket
             </dd>
           </div>
         </dl>
