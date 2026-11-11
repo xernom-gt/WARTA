@@ -1,0 +1,10 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "api/Dockerfile"
+
+[deploy]
+startCommand = "./warta-api"
+healthcheckPath = "/api/v1/health"
+healthcheckTimeout = 5
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
