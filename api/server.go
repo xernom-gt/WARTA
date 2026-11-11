@@ -255,11 +255,16 @@ func devSeedUsers() []user.User {
 	}
 }
 
+// poolPinger abstracts pool.Ping for health check testing.
+type poolPinger interface {
+	Ping(context.Context) error
+}
+
 // health implements openapi.yaml /health (HealthResponse, bare object):
 // 200 "ok" when the database responds, 503 "degraded" when it does not.
 // storage is always "down" for now because object storage is a later
 // milestone (§11); the contract's enum accepts it.
-func health(c fiber.Ctx, pool *pgxpool.Pool, storage report.MediaStorage, cfg config.Config) error {
+func health(c fiber.Ctx, pool poolPinger, storage report.MediaStorage, cfg config.Config) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
 

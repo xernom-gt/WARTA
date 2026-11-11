@@ -89,8 +89,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	port, ok := os.LookupEnv("API_PORT")
-	if !ok || port == "" {
+	// Railway sets PORT; API_PORT is local override
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = os.Getenv("API_PORT")
+	}
+	if port == "" {
 		port = defaultPort
 	}
 
