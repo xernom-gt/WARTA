@@ -56,7 +56,7 @@ interface WartaContextValue extends WartaState {
   addReport: (r: CitizenReport, item?: VerificationItem) => void;
   addClaim: (c: CitizenClaim, item: VerificationItem) => void;
   reset: () => void;
-  setQueue: (items: VerificationItem[]) => void;
+  setQueue: (items: VerificationItem[] | ((prev: VerificationItem[]) => VerificationItem[])) => void;
   recordVote: (record: VoteRecord, updatedItem?: VerificationItem) => void;
   // Fitur Utama Admin:
   updateProject: (id: string, partial: Partial<ProjectPackage>) => void;
@@ -303,8 +303,11 @@ export function WartaProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const setQueue = useCallback((items: VerificationItem[]) => {
-    setState((s) => ({ ...s, queue: items }));
+  const setQueue = useCallback((items: VerificationItem[] | ((prev: VerificationItem[]) => VerificationItem[])) => {
+    setState((s) => ({
+      ...s,
+      queue: typeof items === 'function' ? items(s.queue) : items,
+    }));
   }, []);
 
   const recordVote = useCallback((record: VoteRecord, updatedItem?: VerificationItem) => {

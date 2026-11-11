@@ -24,30 +24,31 @@ export default function AdminDashboardView() {
       .then((res) => {
         if (res.data && res.data.length > 0) {
           const fetched = res.data.map(dtoToItem);
-          const merged = fetched.map((item) => {
-            const local = queue.find((q) => q.id === item.id);
-            if (
-              local &&
-              (local.status === 'selesai' ||
-                local.status === 'terverifikasi' ||
-                local.status === 'ditolak' ||
-                local.adminNote)
-            ) {
-              return {
-                ...item,
-                status: local.status,
-                adminNote: local.adminNote ?? item.adminNote,
-              };
-            }
-            return item;
-          });
-          setQueue(merged);
+          setQueue((prevQueue) =>
+            fetched.map((item) => {
+              const local = prevQueue.find((q) => q.id === item.id);
+              if (
+                local &&
+                (local.status === 'selesai' ||
+                  local.status === 'terverifikasi' ||
+                  local.status === 'ditolak' ||
+                  local.adminNote)
+              ) {
+                return {
+                  ...item,
+                  status: local.status,
+                  adminNote: local.adminNote ?? item.adminNote,
+                };
+              }
+              return item;
+            }),
+          );
         }
       })
       .catch(() => {
         // Abaikan jika offline / error
       });
-  }, [setQueue, queue]);
+  }, [setQueue]);
 
   // Hitung KPI Eksekutif
   const metrics = useMemo(() => {
