@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, FilePlus2, Layers, MapPinOff, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
+import { AlertTriangle, FilePlus2, MapPinOff, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
 
 import { useWarta } from '../../context/WartaContext';
 import { WARTA_PROJECTS } from '../../data/wartaData';
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import JakartaSvgMap from '../map/JakartaSvgMap';
 import OpenStreetMapExplorer from '../map/OpenStreetMapExplorer';
 import MapFloatingSheet from '../map/MapFloatingSheet';
 import ProjectCard from '../project/ProjectCard';
@@ -82,7 +81,6 @@ export default function MapExplorerView() {
   const [precision, setPrecision] = useState('');
   const [hasReports, setHasReports] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [mapView, setMapView] = useState<'osm' | 'svg'>('osm');
 
   const [apiProjects, setApiProjects] = useState<ProjectPackage[]>([]);
 
@@ -404,69 +402,13 @@ export default function MapExplorerView() {
               </div>
             ) : (
               <>
-                {/* Switcher Mode Peta: OpenStreetMap vs Skematik SVG */}
-                <div className="absolute top-3 left-3 z-10 flex items-center rounded-xl border border-slate-200 bg-white/95 p-1 shadow-md backdrop-blur-xs">
-                  <button
-                    type="button"
-                    onClick={() => setMapView('osm')}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
-                      mapView === 'osm'
-                        ? 'bg-brand text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    OpenStreetMap
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMapView('svg')}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
-                      mapView === 'svg'
-                        ? 'bg-brand text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Skematik DKI
-                  </button>
-                </div>
+                <OpenStreetMapExplorer
+                  projects={list}
+                  selectedId={selectedProjectId}
+                  onSelect={selectProject}
+                  heightClass="h-full"
+                />
 
-                {mapView === 'osm' ? (
-                  <OpenStreetMapExplorer
-                    projects={list}
-                    selectedId={selectedProjectId}
-                    onSelect={selectProject}
-                    heightClass="h-full"
-                  />
-                ) : (
-                  <JakartaSvgMap
-                    projects={list}
-                    selectedId={selectedProjectId}
-                    onSelect={selectProject}
-                    gpsDenied={gpsDenied}
-                    className={loading ? 'animate-pulse opacity-60' : ''}
-                  />
-                )}
-
-                {mapView === 'svg' && (
-                  <div className="absolute top-3 right-3 space-y-1.5 rounded-xl border border-slate-200 bg-white/95 p-3 text-xs text-slate-700 shadow-xs backdrop-blur">
-                    <p className="flex items-center gap-1.5 font-bold text-slate-900">
-                      <Layers className="size-3.5 text-brand" />
-                      Legenda Presisi
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <svg width="14" height="14">
-                        <circle cx="7" cy="7" r="6" fill="none" stroke="#1f3b57" strokeDasharray="3 2" strokeWidth="1.5" />
-                      </svg>
-                      Area Perkiraan (Kota/Kelurahan)
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <svg width="14" height="14">
-                        <path d="M7 13 C3 8 2 6 2 5 A5 5 0 1 1 12 5 C12 6 11 8 7 13Z" fill="#1f3b57" />
-                      </svg>
-                      Pin Titik Pasti
-                    </p>
-                  </div>
-                )}
                 {selected && (
                   <MapFloatingSheet
                     project={selected}

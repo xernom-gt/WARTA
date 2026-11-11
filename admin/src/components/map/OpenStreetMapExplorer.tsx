@@ -164,13 +164,6 @@ export default function OpenStreetMapExplorer({
   return (
     <div className={`relative w-full ${heightClass} overflow-hidden rounded-2xl border border-slate-300 bg-slate-100 shadow-xs`}>
       <div ref={containerRef} className="h-full w-full z-0" />
-
-      {/* Floating Info Badge */}
-      <div className="pointer-events-none absolute bottom-4 left-16 z-10 hidden sm:block">
-        <span className="rounded-lg bg-slate-900/80 px-3 py-1.5 text-xs font-semibold text-white shadow-md backdrop-blur-xs">
-          🗺️ Peta Pengawasan OpenStreetMap · Klik pin proyek untuk melihat detail anggaran
-        </span>
-      </div>
     </div>
   );
 }
