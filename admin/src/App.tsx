@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { WartaProvider, useWarta } from './context/WartaContext';
 import { SAMPLE_DATA } from './data/wartaData';
-import ScrollPositionIndicator from './components/common/ScrollPositionIndicator';
 import DevSimulatorBar from './components/layout/DevSimulatorBar';
 import Footer from './components/layout/Footer';
 import Header from './components/layout/Header';
@@ -66,7 +65,6 @@ function AdminRoot() {
       <Footer />
       <ProjectDetailModal />
       <ProjectEditModal />
-      <ScrollPositionIndicator />
     </div>
   );
 }

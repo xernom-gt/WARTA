@@ -307,7 +307,7 @@ export default function VerificationQueueView() {
                 <SelectValue placeholder="Urutkan Prioritas" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="dukungan">🔥 Prioritas: Vote Tertinggi</SelectItem>
+                <SelectItem value="dukungan">Prioritas: Vote Tertinggi</SelectItem>
                 <SelectItem value="default">Terbaru Masuk</SelectItem>
                 <SelectItem value="kontra">Kontra Terbanyak</SelectItem>
               </SelectContent>
@@ -380,7 +380,7 @@ export default function VerificationQueueView() {
 
                   {it.adminNote && (
                     <div className="rounded-lg bg-sky-50/80 px-2.5 py-1.5 text-[11px] font-medium text-sky-900 border border-sky-100">
-                      <strong>🏛️ Tanggapan Dinas:</strong> {it.adminNote}
+                      <strong>Tanggapan Dinas:</strong> {it.adminNote}
                     </div>
                   )}
                 </div>
