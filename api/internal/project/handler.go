@@ -1,6 +1,8 @@
 package project
 
 import (
+	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -454,3 +456,181 @@ func atoi(raw string) int {
 	}
 	return n
 }
+
+
+
+
+// CreateProject implements POST /projects (admin only).
+
+func (h *Handler) CreateProject(c fiber.Ctx) error {
+
+	var params CreateProjectParams
+
+	if !decodeProjectJSON(c, &params) {
+
+		return nil
+
+	}
+
+
+
+	var details []httpx.FieldError
+
+	if strings.TrimSpace(params.Title) == "" {
+
+		details = append(details, httpx.FieldError{Field: "title", Message: "title is required."})
+
+	}
+
+	if strings.TrimSpace(params.Satker) == "" {
+
+		details = append(details, httpx.FieldError{Field: "satker", Message: "satker is required."})
+
+	}
+
+	if strings.TrimSpace(params.Category) == "" {
+
+		details = append(details, httpx.FieldError{Field: "category", Message: "category is required."})
+
+	}
+
+	if strings.TrimSpace(params.PaguAmount) == "" {
+
+		details = append(details, httpx.FieldError{Field: "pagu_amount", Message: "pagu_amount is required."})
+
+	}
+
+	if strings.TrimSpace(params.City) == "" {
+
+		details = append(details, httpx.FieldError{Field: "city", Message: "city is required."})
+
+	}
+
+	if params.Status != "" {
+
+		if _, ok := ParseStatus(string(params.Status)); !ok {
+
+			details = append(details, httpx.FieldError{Field: "status", Message: "Must be one of menunggu, terverifikasi, ditolak, selesai."})
+
+		}
+
+	}
+
+
+
+	if len(details) > 0 {
+
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "One or more fields are invalid.", details...)
+
+	}
+
+
+
+	p, err := h.store.Create(c.Context(), params)
+
+	if err != nil {
+
+		return err
+
+	}
+
+
+
+	return httpx.Data(c, fiber.StatusCreated, p.SummaryView())
+
+}
+
+
+
+// UpdateProject implements PATCH /projects/:id (admin only).
+
+func (h *Handler) UpdateProject(c fiber.Ctx) error {
+
+	id, ok := parseProjectID(c)
+
+	if !ok {
+
+		return httpx.Error(c, fiber.StatusBadRequest, "validation_failed", "project_id is not a valid UUID.")
+
+	}
+
+
+
+	var params UpdateProjectParams
+
+	if !decodeProjectJSON(c, &params) {
+
+		return nil
+
+	}
+
+
+
+	var details []httpx.FieldError
+
+	if params.Status != nil {
+
+		if _, ok := ParseStatus(string(*params.Status)); !ok {
+
+			details = append(details, httpx.FieldError{Field: "status", Message: "Must be one of menunggu, terverifikasi, ditolak, selesai."})
+
+		}
+
+	}
+
+
+
+	if len(details) > 0 {
+
+		return httpx.Error(c, fiber.StatusUnprocessableEntity, "validation_failed", "One or more fields are invalid.", details...)
+
+	}
+
+
+
+	p, err := h.store.Update(c.Context(), id, params)
+
+	switch {
+
+	case err == nil:
+
+		return httpx.Data(c, fiber.StatusOK, p.SummaryView())
+
+	case errors.Is(err, ErrNotFound):
+
+		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Project not found.")
+
+	default:
+
+		return err
+
+	}
+
+}
+
+
+
+func decodeProjectJSON(c fiber.Ctx, into any) bool {
+
+	body := c.Body()
+
+	if len(body) == 0 {
+
+		httpx.Error(c, fiber.StatusBadRequest, "bad_request", "The request body is not valid JSON.")
+
+		return false
+
+	}
+
+	if err := json.Unmarshal(body, into); err != nil {
+
+		httpx.Error(c, fiber.StatusBadRequest, "bad_request", "The request body is not valid JSON.")
+
+		return false
+
+	}
+
+	return true
+
+}
+

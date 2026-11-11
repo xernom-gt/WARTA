@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,8 @@ func newTestApp(store Store) *fiber.App {
 	v1.Get("/projects/:id/reports", h.ListProjectReports)
 	v1.Get("/projects/:id/location-claims", h.ListProjectClaims)
 	v1.Get("/projects/:id/verification-items", h.ListProjectItems)
+	v1.Post("/projects", h.CreateProject)
+	v1.Patch("/projects/:id", h.UpdateProject)
 	return app
 }
 
@@ -260,3 +263,93 @@ func TestHandler_GetProjectDetail(t *testing.T) {
 	}
 }
 
+
+
+func TestCreateProject_Success(t *testing.T) {
+	store := NewMemoryStore()
+	app := newTestApp(store)
+
+	payload := `{
+		"title": "Proyek Uji Baru",
+		"satker": "Dinas Bina Marga",
+		"category": "Jalan & Jembatan",
+		"pagu_amount": "50000000000.00",
+		"city": "Jakarta Selatan",
+		"address": "Jl. Fatmawati No. 10",
+		"latitude": -6.2912,
+		"longitude": 106.7981,
+		"years": [2025, 2026]
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST /projects failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var env struct {
+		Data ProjectSummaryView `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("failed to parse json: %v", err)
+	}
+
+	if env.Data.Title != "Proyek Uji Baru" {
+		t.Errorf("title mismatch: %s", env.Data.Title)
+	}
+	if len(env.Data.Years) != 2 {
+		t.Errorf("years count mismatch: %v", env.Data.Years)
+	}
+}
+
+func TestUpdateProject_Success(t *testing.T) {
+	store := NewMemoryStore()
+	app := newTestApp(store)
+
+	pID := "11111111-1111-1111-1111-000000000001"
+	p := sampleProject(pID, nil)
+	store.Seed(p, []int{2025}, nil, []*Location{
+		{ID: "loc-1", ProjectID: pID, Address: "Jl. Lama", City: "Jakarta Timur", IsPrimary: true},
+	}, nil, 0, 0)
+
+	payload := `{
+		"title": "Proyek Diperbarui",
+		"status": "terverifikasi",
+		"latitude": -6.2001,
+		"longitude": 106.8123
+	}`
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/projects/"+pID, strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PATCH /projects failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var env struct {
+		Data ProjectSummaryView `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("failed to parse json: %v", err)
+	}
+
+	if env.Data.Title != "Proyek Diperbarui" {
+		t.Errorf("title mismatch: %s", env.Data.Title)
+	}
+	if env.Data.Status != StatusTerverifikasi {
+		t.Errorf("status mismatch: %s", env.Data.Status)
+	}
+}

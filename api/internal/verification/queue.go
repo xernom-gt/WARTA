@@ -76,6 +76,8 @@ type VerificationItem struct {
 	VotesDisagree        int        `json:"votes_disagree"`
 	TargetVotes          int        `json:"target_votes"`
 	Voters               []string   `json:"voters"`
+	AdminStatus          *string    `json:"admin_status"`
+	AdminNote            *string    `json:"admin_note"`
 	Status               ItemStatus `json:"status"`
 	CreatedAt            time.Time  `json:"-"`
 	ResolvedAt           *time.Time `json:"-"`
@@ -107,6 +109,8 @@ type ItemView struct {
 	VotesDisagree        int        `json:"votes_disagree"`
 	TargetVotes          int        `json:"target_votes"`
 	Voters               []string   `json:"voters"`
+	AdminStatus          *string    `json:"admin_status"`
+	AdminNote            *string    `json:"admin_note"`
 	Status               ItemStatus `json:"status"`
 	CreatedAt            string     `json:"created_at"`
 	ResolvedAt           *string    `json:"resolved_at"`
@@ -152,6 +156,8 @@ func (it *VerificationItem) View() ItemView {
 		VotesDisagree:        it.VotesDisagree,
 		TargetVotes:          it.TargetVotes,
 		Voters:               voters,
+		AdminStatus:          it.AdminStatus,
+		AdminNote:            it.AdminNote,
 		Status:               it.Status,
 		CreatedAt:            httpx.ISO8601(it.CreatedAt),
 		ResolvedAt:           httpx.ISO8601Ptr(it.ResolvedAt),
@@ -183,5 +189,7 @@ type QueueStore interface {
 	ListQueue(ctx context.Context, filter QueueFilter) (*QueueResult, error)
 	// GetItemByID returns one queue item with its photo and voter display names.
 	GetItemByID(ctx context.Context, itemID string) (*VerificationItem, error)
+	// UpdateFollowUp updates the admin status and notes for a verification item.
+	UpdateFollowUp(ctx context.Context, itemID string, adminStatus string, adminNote *string) (*VerificationItem, error)
 }
 

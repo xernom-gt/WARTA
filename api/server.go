@@ -84,8 +84,21 @@ func main() {
 // wire assembles the full Fiber app; tests reuse it end to end. The store is
 // injected so test suites can run the full stack against an in-memory store
 // (the pool remains required by /health only).
+type adminChecker struct {
+	store user.Store
+}
+
+func (a *adminChecker) CheckAdmin(ctx context.Context, userID string) (bool, bool, error) {
+	u, err := a.store.FindByID(ctx, userID)
+	if err != nil {
+		return false, false, err
+	}
+	return u.IsActive, u.Role == "admin", nil
+}
+
 func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	manager := token.NewManager(string(cfg.JWTSecret), cfg.JWTTTL)
+	adminGuard := middleware.RequireAdmin(&adminChecker{store: store})
 	tokens := authtoken.NewPGStore(pool)
 	bl := blocklist.NewMemStore()
 	mail := chooseMailer(cfg)
@@ -227,6 +240,11 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 	v1.Get("/verification-items/:item_id", verificationHandlers.GetItem)
 	v1.Get("/verification-items/:item_id/votes", verificationHandlers.ListVotes)
 	v1.Post("/verification-items/:item_id/votes", middleware.Bearer(manager, bl), verificationHandlers.CastVote)
+	v1.Patch("/verification-items/:id/follow-up", middleware.Bearer(manager, bl), adminGuard, verificationHandlers.UpdateFollowUp)
+
+	// Admin project management
+	v1.Post("/projects", middleware.Bearer(manager, bl), adminGuard, projectHandlers.CreateProject)
+	v1.Patch("/projects/:id", middleware.Bearer(manager, bl), adminGuard, projectHandlers.UpdateProject)
 
 	return api{app: app}
 }
@@ -258,9 +276,10 @@ func devSeedUsers() []user.User {
 		return nil
 	}
 	return []user.User{
-		{DisplayName: "warga_jakarta", Email: "warga+1@example.com", PasswordHash: hashed},
-		{DisplayName: "warga_barat", Email: "warga+2@example.com", PasswordHash: hashed},
-		{DisplayName: "warga_utara", Email: "warga+3@example.com", PasswordHash: hashed},
+		{DisplayName: "admin_dinas", Email: "admin@dinas.pupr.go.id", Role: "admin", PasswordHash: hashed},
+		{DisplayName: "warga_jakarta", Email: "warga+1@example.com", Role: "warga", PasswordHash: hashed},
+		{DisplayName: "warga_barat", Email: "warga+2@example.com", Role: "warga", PasswordHash: hashed},
+		{DisplayName: "warga_utara", Email: "warga+3@example.com", Role: "warga", PasswordHash: hashed},
 	}
 }
 

@@ -92,7 +92,7 @@ func (s *PGQueueStore) ListQueue(ctx context.Context, filter QueueFilter) (*Queu
 				 WHERE vv.verification_item_id = vi.id),
 				ARRAY[]::varchar[]
 			) AS voters,
-			vi.status, vi.created_at, vi.resolved_at
+			vi.admin_status, vi.admin_note, vi.status, vi.created_at, vi.resolved_at
 		FROM verification_items vi
 		JOIN projects p ON p.id = vi.project_id
 		JOIN users u ON u.id = vi.author_user_id
@@ -133,7 +133,7 @@ func (s *PGQueueStore) ListQueue(ctx context.Context, filter QueueFilter) (*Queu
 			&it.PhotoURL,
 			&it.VotesAgree, &it.VotesDisagree, &it.TargetVotes,
 			&voters,
-			&statusStr, &it.CreatedAt, &it.ResolvedAt,
+			&it.AdminStatus, &it.AdminNote, &statusStr, &it.CreatedAt, &it.ResolvedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan queue item: %w", err)
@@ -185,7 +185,7 @@ func (s *PGQueueStore) GetItemByID(ctx context.Context, itemID string) (*Verific
 				 WHERE vv.verification_item_id = vi.id),
 				ARRAY[]::varchar[]
 			) AS voters,
-			vi.status, vi.created_at, vi.resolved_at
+			vi.admin_status, vi.admin_note, vi.status, vi.created_at, vi.resolved_at
 		FROM verification_items vi
 		JOIN projects p ON p.id = vi.project_id
 		JOIN users u ON u.id = vi.author_user_id
@@ -214,7 +214,7 @@ func (s *PGQueueStore) GetItemByID(ctx context.Context, itemID string) (*Verific
 		&it.PhotoURL,
 		&it.VotesAgree, &it.VotesDisagree, &it.TargetVotes,
 		&voters,
-		&statusStr, &it.CreatedAt, &it.ResolvedAt,
+		&it.AdminStatus, &it.AdminNote, &statusStr, &it.CreatedAt, &it.ResolvedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -228,3 +228,20 @@ func (s *PGQueueStore) GetItemByID(ctx context.Context, itemID string) (*Verific
 	return &it, nil
 }
 
+
+
+// UpdateFollowUp updates the government admin status and note on an item.
+func (s *PGQueueStore) UpdateFollowUp(ctx context.Context, itemID string, adminStatus string, adminNote *string) (*VerificationItem, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE verification_items
+		SET admin_status = $2, admin_note = $3
+		WHERE id = $1
+	`, itemID, adminStatus, adminNote)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrItemNotFound
+	}
+	return s.GetItemByID(ctx, itemID)
+}

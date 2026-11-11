@@ -307,4 +307,74 @@ INSERT INTO project_locations (project_id, name, address, city, precision_level,
     ('11111111-1111-1111-1111-000000000008', 'Dermaga Pulau Pramuka', 'Pulau Pramuka, Kepulauan Seribu', 'Kepulauan Seribu', 'kabupaten/kota', 'SPSE', -5.745900, 106.613800, false, true)
 ON CONFLICT DO NOTHING;
 
+INSERT INTO projects (
+    id, spse_code, title, satker, category, pagu_amount, hps_amount, contract_amount, contract_note,
+    city, is_outside_dki, location_description, precision_level, location_source, is_canonical_claimed,
+    status, source_note
+) VALUES (
+    '11111111-1111-1111-1111-000000000009',
+    '10078924000',
+    'Revitalisasi Trotoar & Saluran Koridor Sudirman-Thamrin',
+    'Dinas Bina Marga Provinsi DKI Jakarta',
+    'Jalan & Jembatan',
+    125500000000.00,
+    118200000000.00,
+    114800000000.00,
+    NULL,
+    'Jakarta Pusat',
+    false,
+    'Jl. Jenderal Sudirman, Gelora, Tanah Abang, Jakarta Pusat',
+    'titik',
+    'SPSE',
+    true,
+    'selesai',
+    'Sumber: SPSE/INAPROC. Diambil: 15 Maret 2025.'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO project_years (project_id, fiscal_year) VALUES
+    ('11111111-1111-1111-1111-000000000009', 2025),
+    ('11111111-1111-1111-1111-000000000009', 2026)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO project_locations (project_id, name, address, city, precision_level, source, latitude, longitude, is_verified, is_primary) VALUES
+    ('11111111-1111-1111-1111-000000000009', 'Koridor Sudirman-Thamrin', 'Jl. Jenderal Sudirman, Gelora, Tanah Abang, Jakarta Pusat', 'Jakarta Pusat', 'titik', 'SPSE', -6.215400, 106.821100, true, true)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO projects (
+    id, spse_code, title, satker, category, pagu_amount, hps_amount, contract_amount, contract_note,
+    city, is_outside_dki, location_description, precision_level, location_source, is_canonical_claimed,
+    status, source_note
+) VALUES (
+    '11111111-1111-1111-1111-000000000010',
+    '10065432000',
+    'Pembangunan Flyover Pramuka-Matraman',
+    'Dinas Bina Marga Provinsi DKI Jakarta',
+    'Jalan & Jembatan',
+    210000000000.00,
+    198500000000.00,
+    192100000000.00,
+    NULL,
+    'Jakarta Timur',
+    false,
+    'Simpang Matraman, Palmeriam, Matraman, Jakarta Timur',
+    'titik',
+    'SPSE',
+    true,
+    'terverifikasi',
+    'Sumber: SPSE/INAPROC. Diambil: 15 Maret 2025.'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO project_years (project_id, fiscal_year) VALUES
+    ('11111111-1111-1111-1111-000000000010', 2025),
+    ('11111111-1111-1111-1111-000000000010', 2026)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO project_locations (project_id, name, address, city, precision_level, source, latitude, longitude, is_verified, is_primary) VALUES
+    ('11111111-1111-1111-1111-000000000010', 'Simpang Matraman', 'Simpang Matraman, Palmeriam, Matraman, Jakarta Timur', 'Jakarta Timur', 'titik', 'SPSE', -6.202300, 106.858400, true, true)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO project_risk_flags (project_id, code, label, description, level) VALUES
+    ('11111111-1111-1111-1111-000000000010', 'rf-10', 'Proyek Strategis Daerah', 'Pembangunan overpass untuk mengurai kemacetan koridor Matraman-Salemba.', 'info')
+ON CONFLICT DO NOTHING;
+
 COMMIT;

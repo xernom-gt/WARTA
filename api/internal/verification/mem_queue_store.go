@@ -101,3 +101,17 @@ func (s *MemoryQueueStore) GetItemByID(ctx context.Context, itemID string) (*Ver
 	return it, nil
 }
 
+
+// UpdateFollowUp sets the admin status and admin note on an item in memory.
+func (s *MemoryQueueStore) UpdateFollowUp(_ context.Context, itemID string, adminStatus string, adminNote *string) (*VerificationItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	it, ok := s.items[itemID]
+	if !ok {
+		return nil, ErrItemNotFound
+	}
+	it.AdminStatus = &adminStatus
+	it.AdminNote = adminNote
+	return it, nil
+}

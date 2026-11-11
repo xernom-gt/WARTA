@@ -1,3 +1,41 @@
+export interface CreateProjectPayload {
+  title: string;
+  spse_code?: string;
+  satker: string;
+  category: string;
+  pagu_amount: string;
+  hps_amount?: string;
+  contract_amount?: string | null;
+  contract_note?: string | null;
+  city: string;
+  is_outside_dki?: boolean;
+  precision_level?: string;
+  status?: ReportStatus;
+  source_note?: string | null;
+  years?: number[];
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+export interface UpdateProjectPayload {
+  title?: string;
+  satker?: string;
+  category?: string;
+  pagu_amount?: string;
+  hps_amount?: string;
+  contract_amount?: string | null;
+  contract_note?: string | null;
+  city?: string;
+  is_outside_dki?: boolean;
+  precision_level?: string;
+  status?: ReportStatus;
+  source_note?: string | null;
+  years?: number[];
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}
 import { api } from './api';
 import type { PrecisionLevel, ReportStatus } from '../types/warta';
 
@@ -146,6 +184,16 @@ export const projectService = {
 
   async getProjectRiskFlags(id: string): Promise<RiskFlagDTO[]> {
     const { data } = await api.get<{ data: RiskFlagDTO[] }>(`/projects/${id}/risk-flags`);
+    return data.data;
+  },
+
+  async createProject(payload: CreateProjectPayload): Promise<ProjectSummaryDTO> {
+    const { data } = await api.post<{ data: ProjectSummaryDTO }>('/projects', payload);
+    return data.data;
+  },
+
+  async updateProject(id: string, payload: UpdateProjectPayload): Promise<ProjectSummaryDTO> {
+    const { data } = await api.patch<{ data: ProjectSummaryDTO }>(`/projects/${id}`, payload);
     return data.data;
   },
 };

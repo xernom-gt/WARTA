@@ -3,7 +3,8 @@ import { Building2, Check, MapPin, Save, Trash2, X } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { WARTA_PROJECTS } from '../../data/wartaData';
 import type { PrecisionLevel, ProjectPackage, ReportStatus } from '../../types/warta';
-import MiniPinMap, { type MiniPinValue } from '../map/MiniPinMap';
+import MiniPinMap, { type MiniPinValue } from '../map/MiniPinMap';
+import { projectService } from '../../services/project';
 
 const CATEGORIES = [
   'Gedung & Permukiman',
@@ -159,8 +160,70 @@ export default function ProjectEditModal() {
         sourceNote: 'Sumber: Input Admin Dinas Teknis',
         mapCoordinates: { svgX: pin.x, svgY: pin.y, lat, lng },
       };
-      addProject(newProject);
+      addProject(newProject);
+      projectService
+        .createProject({
+          title: title.trim(),
+          satker: satker.trim(),
+          category,
+          pagu_amount: '15000000000.00',
+          city: 'Jakarta Pusat',
+          address: locationDesc.trim() || 'Jakarta Pusat',
+          latitude: lat,
+          longitude: lng,
+          precision_level: precisionLevel,
+          status,
+          years: [2026],
+        })
+        .catch((err) => {
+          console.warn('API sync failed, saved locally:', err);
+        });
+      projectService
+        .createProject({
+          title: title.trim(),
+          satker: satker.trim(),
+          category,
+          pagu_amount: '15000000000.00',
+          city: 'Jakarta Pusat',
+          address: locationDesc.trim() || 'Jakarta Pusat',
+          latitude: lat,
+          longitude: lng,
+          precision_level: precisionLevel,
+          status,
+          years: [2026],
+        })
+        .catch((err) => {
+          console.warn('API sync failed, saved locally:', err);
+        });
     } else if (project) {
+      projectService
+        .updateProject(project.id, {
+          title: title.trim(),
+          satker: satker.trim(),
+          category,
+          status,
+          address: locationDesc.trim(),
+          latitude: lat,
+          longitude: lng,
+          precision_level: precisionLevel,
+        })
+        .catch((err) => {
+          console.warn('API sync failed, saved locally:', err);
+        });
+      projectService
+        .updateProject(project.id, {
+          title: title.trim(),
+          satker: satker.trim(),
+          category,
+          status,
+          address: locationDesc.trim(),
+          latitude: lat,
+          longitude: lng,
+          precision_level: precisionLevel,
+        })
+        .catch((err) => {
+          console.warn('API sync failed, saved locally:', err);
+        });
       updateProject(project.id, {
         title: title.trim(),
         satker: satker.trim(),

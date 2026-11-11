@@ -85,6 +85,7 @@ type UserPrivateView struct {
 	ID              string  `json:"id"`
 	DisplayName     string  `json:"display_name"`
 	Email           string  `json:"email"`
+	Role            string  `json:"role,omitempty"`
 	EmailVerifiedAt *string `json:"email_verified_at,omitempty"`
 	IsActive        bool    `json:"is_active"`
 	CreatedAt       string  `json:"created_at"`
@@ -107,6 +108,7 @@ func userPrivateView(u *user.User) UserPrivateView {
 		ID:              u.ID,
 		DisplayName:     u.DisplayName,
 		Email:           u.Email,
+		Role:            u.Role,
 		EmailVerifiedAt: nullableRFC3339(u.EmailVerifiedAt),
 		IsActive:        u.IsActive,
 		CreatedAt:       rfc3339(u.CreatedAt),

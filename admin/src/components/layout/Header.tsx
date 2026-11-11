@@ -3,6 +3,7 @@ import {
   Inbox,
   Landmark,
   LayoutDashboard,
+  LogOut,
   Map,
   ShieldCheck,
 } from 'lucide-react';
@@ -17,7 +18,7 @@ const TABS: { id: ActiveScreen; label: string; icon: typeof LayoutDashboard }[] 
 ];
 
 export default function Header() {
-  const { activeScreen, navigate, currentUser, queue } = useWarta();
+  const { activeScreen, navigate, currentUser, queue, logout } = useWarta();
   const pending = queue.filter((q) => q.status === 'menunggu').length;
 
   const tabActive = (id: ActiveScreen) =>
@@ -76,12 +77,27 @@ export default function Header() {
           ))}
         </nav>
 
-        {/* Identitas Akun Admin */}
-        <div className="ml-auto md:ml-0">
+        {/* Identitas Akun Admin & Logout */}
+        <div className="ml-auto flex items-center gap-2.5 md:ml-0">
           <div className="flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs backdrop-blur-xs">
             <ShieldCheck className="size-4 text-emerald-300" />
-            <span>{currentUser || 'Admin Pengelola (Dinas PUPR)'}</span>
+            <span className="max-w-[140px] truncate sm:max-w-[200px]">
+              {currentUser || 'Admin Dinas'}
+            </span>
+            <span className="rounded bg-emerald-500/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
+              Admin
+            </span>
           </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            title="Keluar dari sesi administrator"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-sky-100 transition hover:bg-rose-500/80 hover:text-white cursor-pointer"
+          >
+            <LogOut className="size-3.5" />
+            <span className="hidden sm:inline">Keluar</span>
+          </button>
         </div>
       </div>
     </header>

@@ -26,6 +26,8 @@ export interface VerificationItemDTO {
   votes_disagree: number;
   target_votes: number;
   voters: string[];
+  admin_status?: string | null;
+  admin_note?: string | null;
   status: 'menunggu' | 'terverifikasi' | 'ditolak' | 'diterima';
   created_at: string;
   resolved_at?: string | null;
@@ -115,6 +117,14 @@ export const verificationService = {
   async castVote(itemId: string, choice: VoteChoice): Promise<CastVoteResponse> {
     const { data } = await api.post<{ data: CastVoteResponse }>(`/verification-items/${itemId}/votes`, {
       choice,
+    });
+    return data.data;
+  },
+
+  async updateFollowUp(itemId: string, adminStatus: string, adminNote?: string): Promise<VerificationItemDTO> {
+    const { data } = await api.patch<{ data: VerificationItemDTO }>(`/verification-items/${itemId}/follow-up`, {
+      admin_status: adminStatus,
+      admin_note: adminNote || null,
     });
     return data.data;
   },

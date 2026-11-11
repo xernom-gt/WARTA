@@ -71,7 +71,8 @@ function dtoToItem(dto: VerificationItemDTO): VerificationItem {
     votesDisagree: dto.votes_disagree,
     targetVotes: dto.target_votes,
     voters: dto.voters ?? [],
-    status: dto.status as VerificationItem['status'],
+    status: (dto.admin_status as VerificationItem['status']) || (dto.status as VerificationItem['status']),
+    adminNote: dto.admin_note ?? undefined,
     reportId: dto.report_id,
     claimId: dto.claim_id,
   };
@@ -106,14 +107,26 @@ export default function VerificationQueueView() {
         item_type: type !== 'semua' ? type : undefined,
       });
       if (res.data && res.data.length > 0) {
-        setQueue(res.data.map(dtoToItem));
+        const fetched = res.data.map(dtoToItem);
+        const merged = fetched.map((item) => {
+          const local = queue.find((q) => q.id === item.id);
+          if (local && (local.status === 'selesai' || local.status === 'terverifikasi' || local.status === 'ditolak' || local.adminNote)) {
+            return {
+              ...item,
+              status: local.status,
+              adminNote: local.adminNote ?? item.adminNote,
+            };
+          }
+          return item;
+        });
+        setQueue(merged);
       }
     } catch {
       // Pertahankan queue mock jika offline/error
     } finally {
       setLoadingQueue(false);
     }
-  }, [status, type, setQueue]);
+  }, [status, type, setQueue, queue]);
 
   useEffect(() => {
     fetchQueue();
@@ -134,7 +147,11 @@ export default function VerificationQueueView() {
 
   const handleAdminSaveStatus = () => {
     if (!active) return;
-    updateReportStatus(active.id, adminNextStatus, adminNoteText.trim());
+    const note = adminNoteText.trim();
+    updateReportStatus(active.id, adminNextStatus, note);
+    verificationService.updateFollowUp(active.id, adminNextStatus, note).catch((err) => {
+      console.warn('API follow-up sync failed, saved locally:', err);
+    });
     setAdminUpdateSuccess(true);
     setTimeout(() => setAdminUpdateSuccess(false), 2500);
   };

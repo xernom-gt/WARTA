@@ -62,37 +62,75 @@ export default function ProjectDetailModal() {
     fallbackProject = null;
   }
 
-  const p = liveDetail
+  const p = fallbackProject
     ? {
-        id: liveDetail.id,
-        title: liveDetail.title,
-        spseCode: liveDetail.spse_code,
-        status: liveDetail.status,
-        category: liveDetail.category,
-        satker: liveDetail.satker,
-        paguCompact: `Rp ${liveDetail.pagu_amount}`,
-        paguFull: `Rp ${liveDetail.pagu_amount}`,
-        hpsCompact: `Rp ${liveDetail.hps_amount}`,
-        hpsFull: `Rp ${liveDetail.hps_amount}`,
-        kontrakCompact: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
-        kontrakFull: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
-        kontrakAvailable: liveDetail.contract_available,
-        years: liveDetail.years.map(String),
-        multiYearsMicrocopy: liveDetail.derived?.multi_years_microcopy,
-        locationDesc: liveDetail.city,
-        precisionBadge: liveDetail.derived?.precision_badge || liveDetail.precision_level,
-        locationSource: liveDetail.location_source,
-        precisionMicrocopy: liveDetail.derived?.precision_microcopy,
-        precisionResolutionNote: liveDetail.precision_note,
-        canonicalMicrocopy: liveDetail.derived?.canonical_microcopy,
-        subLocationsMicrocopy: liveDetail.derived?.sub_locations_microcopy,
-        isRetender: liveDetail.is_retender,
-        retenderMicrocopy: liveDetail.derived?.retender_microcopy,
-        sourceNote: liveDetail.source_note,
-        isRoughArea: liveDetail.derived?.is_rough_area ?? false,
-        isCanonicalClaimed: liveDetail.is_canonical_claimed,
+        ...fallbackProject,
+        ...(liveDetail
+          ? {
+              id: liveDetail.id,
+              spseCode: liveDetail.spse_code,
+              category: fallbackProject.category || liveDetail.category,
+              satker: fallbackProject.satker || liveDetail.satker,
+              years: fallbackProject.years || liveDetail.years.map(String),
+              multiYearsMicrocopy: liveDetail.derived?.multi_years_microcopy,
+              locationDesc: fallbackProject.locationDesc || liveDetail.location?.address || liveDetail.city,
+              precisionBadge: fallbackProject.precisionBadge || liveDetail.derived?.precision_badge || liveDetail.precision_level,
+              locationSource: liveDetail.location_source,
+              precisionMicrocopy: liveDetail.derived?.precision_microcopy,
+              precisionResolutionNote: liveDetail.precision_note,
+              canonicalMicrocopy: liveDetail.derived?.canonical_microcopy,
+              subLocationsMicrocopy: liveDetail.derived?.sub_locations_microcopy,
+              isRetender: liveDetail.is_retender,
+              retenderMicrocopy: liveDetail.derived?.retender_microcopy,
+              sourceNote: liveDetail.source_note,
+              isRoughArea: liveDetail.derived?.is_rough_area ?? false,
+              isCanonicalClaimed: liveDetail.is_canonical_claimed,
+              mapCoordinates: fallbackProject.mapCoordinates || (liveDetail.location?.latitude && liveDetail.location?.longitude ? {
+                svgX: 500,
+                svgY: 450,
+                lat: liveDetail.location.latitude,
+                lng: liveDetail.location.longitude,
+              } : undefined),
+            }
+          : {}),
       }
-    : fallbackProject;
+    : (liveDetail
+      ? {
+          id: liveDetail.id,
+          title: liveDetail.title,
+          spseCode: liveDetail.spse_code,
+          status: liveDetail.status,
+          category: liveDetail.category,
+          satker: liveDetail.satker,
+          paguCompact: `Rp ${liveDetail.pagu_amount}`,
+          paguFull: `Rp ${liveDetail.pagu_amount}`,
+          hpsCompact: `Rp ${liveDetail.hps_amount}`,
+          hpsFull: `Rp ${liveDetail.hps_amount}`,
+          kontrakCompact: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
+          kontrakFull: liveDetail.contract_amount ? `Rp ${liveDetail.contract_amount}` : null,
+          kontrakAvailable: liveDetail.contract_available,
+          years: liveDetail.years.map(String),
+          multiYearsMicrocopy: liveDetail.derived?.multi_years_microcopy,
+          locationDesc: liveDetail.city,
+          precisionBadge: liveDetail.derived?.precision_badge || liveDetail.precision_level,
+          locationSource: liveDetail.location_source,
+          precisionMicrocopy: liveDetail.derived?.precision_microcopy,
+          precisionResolutionNote: liveDetail.precision_note,
+          canonicalMicrocopy: liveDetail.derived?.canonical_microcopy,
+          subLocationsMicrocopy: liveDetail.derived?.sub_locations_microcopy,
+          isRetender: liveDetail.is_retender,
+          retenderMicrocopy: liveDetail.derived?.retender_microcopy,
+          sourceNote: liveDetail.source_note,
+          isRoughArea: liveDetail.derived?.is_rough_area ?? false,
+          isCanonicalClaimed: liveDetail.is_canonical_claimed,
+          mapCoordinates: liveDetail.location?.latitude && liveDetail.location?.longitude ? {
+            svgX: 500,
+            svgY: 450,
+            lat: liveDetail.location.latitude,
+            lng: liveDetail.location.longitude,
+          } : undefined,
+        }
+      : null);
 
   if (!p) return null;
 

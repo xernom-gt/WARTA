@@ -38,6 +38,8 @@ export const PROJECT_ID_MAP: Record<string, string> = {
   'proj-6': '11111111-1111-1111-1111-000000000006',
   'proj-7': '11111111-1111-1111-1111-000000000007',
   'proj-8': '11111111-1111-1111-1111-000000000008',
+  'proj-9': '11111111-1111-1111-1111-000000000009',
+  'proj-10': '11111111-1111-1111-1111-000000000010',
 };
 
 export const WARTA_PROJECTS: ProjectPackage[] = [
@@ -423,7 +425,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 150, svgY: 145, lat: -5.7459, lng: 106.6138 },
   },
   {
-    id: 'proj-9',
+    id: '11111111-1111-1111-1111-000000000009',
     title: 'Revitalisasi Trotoar & Saluran Koridor Sudirman-Thamrin',
     spseCode: '10078924000',
     failedTenders: [],
@@ -458,7 +460,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 520, svgY: 480, lat: -6.2154, lng: 106.8211 },
   },
   {
-    id: 'proj-10',
+    id: '11111111-1111-1111-1111-000000000010',
     title: 'Pembangunan Flyover Pramuka-Matraman',
     spseCode: '10065432000',
     failedTenders: [],

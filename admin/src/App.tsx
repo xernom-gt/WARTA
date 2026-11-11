@@ -11,6 +11,7 @@ import AdminDashboardView from './components/views/AdminDashboardView';
 import AdminProjectsView from './components/views/AdminProjectsView';
 import MapExplorerView from './components/views/MapExplorerView';
 import VerificationQueueView from './components/views/VerificationQueueView';
+import AdminLoginView from './components/views/AdminLoginView';
 
 function Screen() {
   const { activeScreen } = useWarta();
@@ -37,20 +38,43 @@ function Screen() {
   }
 }
 
+function AdminRoot() {
+  const { currentUser, isAuthChecking } = useWarta();
+
+  if (isAuthChecking) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-900 text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-9 animate-spin rounded-full border-3 border-sky-400 border-t-transparent" />
+          <p className="text-sm font-semibold text-slate-300">Memverifikasi Sesi Administrator Dinas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AdminLoginView />;
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+      <Header />
+      {SAMPLE_DATA && <DevSimulatorBar />}
+      <main className="flex flex-1 flex-col">
+        <Screen />
+      </main>
+      <Footer />
+      <ProjectDetailModal />
+      <ProjectEditModal />
+      <ScrollPositionIndicator />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <WartaProvider>
-      <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-        <Header />
-        {SAMPLE_DATA && <DevSimulatorBar />}
-        <main className="flex flex-1 flex-col">
-          <Screen />
-        </main>
-        <Footer />
-        <ProjectDetailModal />
-        <ProjectEditModal />
-        <ScrollPositionIndicator />
-      </div>
+      <AdminRoot />
     </WartaProvider>
   );
 }
