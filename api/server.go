@@ -68,6 +68,9 @@ func main() {
 		if err := db.SeedDevUsers(ctx, pool, devSeedUsers()); err != nil {
 			log.Fatalf("db: seed: %v", err)
 		}
+		if err := db.SeedDevProjects(ctx, pool); err != nil {
+			log.Fatalf("db: seed projects: %v", err)
+		}
 	}
 
 	managers := wire(cfg, pool, user.NewPGStore(pool))

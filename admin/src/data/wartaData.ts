@@ -29,9 +29,20 @@ export const DATASET_SUMMARY = {
   },
 };
 
+export const PROJECT_ID_MAP: Record<string, string> = {
+  'proj-1': '11111111-1111-1111-1111-000000000001',
+  'proj-2': '11111111-1111-1111-1111-000000000002',
+  'proj-3': '11111111-1111-1111-1111-000000000003',
+  'proj-4': '11111111-1111-1111-1111-000000000004',
+  'proj-5': '11111111-1111-1111-1111-000000000005',
+  'proj-6': '11111111-1111-1111-1111-000000000006',
+  'proj-7': '11111111-1111-1111-1111-000000000007',
+  'proj-8': '11111111-1111-1111-1111-000000000008',
+};
+
 export const WARTA_PROJECTS: ProjectPackage[] = [
   {
-    id: 'proj-1',
+    id: '11111111-1111-1111-1111-000000000001',
     title: 'Rusun Rorotan IX Tahap I',
     spseCode: '10091309000',
     failedTenders: [],
@@ -74,7 +85,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 860, svgY: 300, lat: -6.1472, lng: 106.9531 },
   },
   {
-    id: 'proj-2',
+    id: '11111111-1111-1111-1111-000000000002',
     title: 'Polder Kamal Tahap I',
     spseCode: '10097213000',
     failedTenders: [
@@ -131,7 +142,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 120, svgY: 270, lat: -6.0984, lng: 106.7189 },
   },
   {
-    id: 'proj-3',
+    id: '11111111-1111-1111-1111-000000000003',
     title: 'UILS Koja',
     spseCode: '10044987000',
     failedTenders: [
@@ -192,7 +203,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 720, svgY: 312, lat: -6.1214, lng: 106.9012 },
   },
   {
-    id: 'proj-4',
+    id: '11111111-1111-1111-1111-000000000004',
     title: 'IPAS TPST Bantargebang',
     spseCode: '10069030000',
     failedTenders: [
@@ -241,7 +252,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 900, svgY: 720, lat: -6.3421, lng: 106.9983 },
   },
   {
-    id: 'proj-5',
+    id: '11111111-1111-1111-1111-000000000005',
     title: 'NCICD Fase A Lokasi 1 Paket 2',
     spseCode: '59676127',
     failedTenders: [],
@@ -277,7 +288,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 580, svgY: 227, lat: -6.1025, lng: 106.8014 },
   },
   {
-    id: 'proj-6',
+    id: '11111111-1111-1111-1111-000000000006',
     title: 'Rehab Total Gedung Sekolah 2025 Paket 3',
     spseCode: '10027666000',
     failedTenders: [],
@@ -327,7 +338,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 480, svgY: 720, lat: -6.2394, lng: 106.8523 },
   },
   {
-    id: 'proj-7',
+    id: '11111111-1111-1111-1111-000000000007',
     title: 'Jakarta Sewerage Zone 1 Paket 5 (Area 2-1)',
     spseCode: '52764127',
     failedTenders: [],
@@ -376,7 +387,7 @@ export const WARTA_PROJECTS: ProjectPackage[] = [
     mapCoordinates: { svgX: 510, svgY: 430, lat: -6.1944, lng: 106.8229 },
   },
   {
-    id: 'proj-8',
+    id: '11111111-1111-1111-1111-000000000008',
     title: 'Gapura Kepulauan Seribu',
     spseCode: '10063530000',
     failedTenders: [],
@@ -417,7 +428,8 @@ export const CURRENT_USER = 'Warga_KebonJeruk';
 export const OTHER_USER = 'Warga_Cilincing';
 
 export const getProject = (id: string): ProjectPackage => {
-  const p = WARTA_PROJECTS.find((x) => x.id === id);
+  const resolvedId = PROJECT_ID_MAP[id] ?? id;
+  const p = WARTA_PROJECTS.find((x) => x.id === resolvedId);
   if (!p) throw new Error(`Paket ${id} tidak ditemukan`);
   return p;
 };

@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Camera,
@@ -27,7 +27,7 @@ import type {
 } from '../../types/warta';
 import { reportsService } from '../../services/reports';
 import ExifCheckBadge, { EXIF_INVALID_TEXT, EXIF_VALID_TEXT } from '../common/ExifCheckBadge';
-import MiniPinMap from '../map/MiniPinMap';
+import MiniPinMap, { type MiniPinValue } from '../map/MiniPinMap';
 
 const MAX_NARRATIVE = 500;
 const MIN_NARRATIVE = 20;
@@ -66,30 +66,158 @@ export default function CitizenReportFormView() {
 
   const formMode = activeScreen === 'klaim' ? 'klaim' : 'lapor';
 
+  // Sesi draft storage keys
+  const reportDraftKey = `warta_lapor_draft_${currentProjectId}`;
+  const claimDraftKey = `warta_claim_draft_${currentProjectId}`;
+
+  const savedReportDraft = useMemo(() => {
+    if (editingDraft) return null;
+    try {
+      const raw = sessionStorage.getItem(reportDraftKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [editingDraft, reportDraftKey]);
+
+  const savedClaimDraft = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(claimDraftKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [claimDraftKey]);
+
   // State Form Laporan Kondisi
-  const [category, setCategory] = useState<ReportCategory | ''>(editingDraft?.category ?? '');
-  const [narrative, setNarrative] = useState(editingDraft?.narrative ?? '');
+  const [category, setCategory] = useState<ReportCategory | ''>(
+    editingDraft?.category ?? savedReportDraft?.category ?? '',
+  );
+  const [narrative, setNarrative] = useState(
+    editingDraft?.narrative ?? savedReportDraft?.narrative ?? '',
+  );
   const [proposedAddress, setProposedAddress] = useState(
-    editingDraft?.proposedAddress ?? p.locationDesc,
+    editingDraft?.proposedAddress ?? savedReportDraft?.proposedAddress ?? p.locationDesc,
   );
   const [photos, setPhotos] = useState<PhotoAttachment[]>(
     editingDraft?.photoUrls?.map((u, idx) => ({ name: `foto-${idx + 1}.jpg`, url: u })) ?? [],
   );
   const [exifValid, setExifValid] = useState<boolean | undefined>(editingDraft?.exifValid);
-  const [pin, setPin] = useState({ x: 52, y: 48 });
+  const [pin, setPin] = useState<MiniPinValue>(
+    savedReportDraft?.pin ?? {
+      x: 52,
+      y: 48,
+      lat: p.mapCoordinates?.lat,
+      lng: p.mapCoordinates?.lng,
+    },
+  );
+
+  const onPinChange = (nextPin: MiniPinValue) => {
+    setPin(nextPin);
+    // Jika di-reset kembali ke titik awal proyek, kembalikan teks alamat ke lokasi kanonik proyek
+    if (
+      p.mapCoordinates &&
+      nextPin.lat !== undefined &&
+      nextPin.lng !== undefined &&
+      Math.abs(nextPin.lat - p.mapCoordinates.lat) < 0.00008 &&
+      Math.abs(nextPin.lng - p.mapCoordinates.lng) < 0.00008
+    ) {
+      setProposedAddress(p.locationDesc);
+    } else if (nextPin.address && (!proposedAddress || proposedAddress === p.locationDesc)) {
+      setProposedAddress(nextPin.address);
+    }
+  };
+
+  const pinLat = pin.lat ?? -6.1 - pin.y / 1000;
+  const pinLng = pin.lng ?? 106.8 + pin.x / 1000;
   const [reportErrors, setReportErrors] = useState<string[]>([]);
   const [doneState, setDoneState] = useState<'draft' | 'sent' | 'claim-sent' | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState<string>('');
 
   // State Form Klaim Lokasi
-  const [level, setLevel] = useState<PrecisionLevel>('alamat/ruas');
-  const [claimAddress, setClaimAddress] = useState('');
-  const [kelurahan, setKelurahan] = useState('');
-  const [kecamatan, setKecamatan] = useState('');
-  const [landmark, setLandmark] = useState('');
+  const [level, setLevel] = useState<PrecisionLevel>(savedClaimDraft?.level ?? 'alamat/ruas');
+  const [claimAddress, setClaimAddress] = useState(savedClaimDraft?.claimAddress ?? '');
+  const [kelurahan, setKelurahan] = useState(savedClaimDraft?.kelurahan ?? '');
+  const [kecamatan, setKecamatan] = useState(savedClaimDraft?.kecamatan ?? '');
+  const [landmark, setLandmark] = useState(savedClaimDraft?.landmark ?? '');
   const [claimPhoto, setClaimPhoto] = useState<string | null>(null);
   const [claimErrors, setClaimErrors] = useState<string[]>([]);
+
+  // Auto-save draf laporan ke sessionStorage dengan debounce (bebas memory leak)
+  useEffect(() => {
+    if (editingDraft) return;
+    const timer = setTimeout(() => {
+      try {
+        if (category || narrative || (proposedAddress && proposedAddress !== p.locationDesc)) {
+          sessionStorage.setItem(
+            reportDraftKey,
+            JSON.stringify({ category, narrative, proposedAddress, pin }),
+          );
+        }
+      } catch {
+        // Abaikan jika storage disabled/quota
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [category, narrative, proposedAddress, pin, reportDraftKey, editingDraft, p.locationDesc]);
+
+  // Auto-save draf klaim ke sessionStorage dengan debounce (bebas memory leak)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (claimAddress || kelurahan || kecamatan || landmark) {
+          sessionStorage.setItem(
+            claimDraftKey,
+            JSON.stringify({ level, claimAddress, kelurahan, kecamatan, landmark }),
+          );
+        }
+      } catch {
+        // Abaikan jika storage disabled/quota
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [level, claimAddress, kelurahan, kecamatan, landmark, claimDraftKey]);
+
+  // Pembersihan Blob URL ketika foto dihapus atau komponen unmount (bebas memory leak)
+  useEffect(() => {
+    return () => {
+      photos.forEach((ph) => {
+        if (ph.url.startsWith('blob:')) {
+          URL.revokeObjectURL(ph.url);
+        }
+      });
+    };
+  }, [photos]);
+
+  useEffect(() => {
+    return () => {
+      if (claimPhoto?.startsWith('blob:')) {
+        URL.revokeObjectURL(claimPhoto);
+      }
+    };
+  }, [claimPhoto]);
+
+  const handleRemovePhoto = (indexToRemove: number) => {
+    setPhotos((prev) => {
+      const item = prev[indexToRemove];
+      if (item?.url.startsWith('blob:')) {
+        URL.revokeObjectURL(item.url);
+      }
+      return prev.filter((_, idx) => idx !== indexToRemove);
+    });
+  };
+
+  const updateClaimPhoto = (nextUrl: string | null) => {
+    setClaimPhoto((prev) => {
+      if (prev?.startsWith('blob:')) {
+        URL.revokeObjectURL(prev);
+      }
+      return nextUrl;
+    });
+  };
 
   const onProjectChange = (nextProjectId: string) => {
     selectProject(nextProjectId);
@@ -179,16 +307,16 @@ export default function CitizenReportFormView() {
           category: (category || undefined) as ReportCategory | undefined,
           narrative: narrative.trim() || undefined,
           proposed_address: proposedAddress.trim() || undefined,
-          latitude: -6.1 - pin.y / 1000,
-          longitude: 106.8 + pin.x / 1000,
+          latitude: pinLat,
+          longitude: pinLng,
         });
       } else {
         const created = await reportsService.createReport(p.id, {
           category: (category || undefined) as ReportCategory | undefined,
           narrative: narrative.trim() || 'Draf laporan kondisi warga',
           proposed_address: proposedAddress.trim() || undefined,
-          latitude: -6.1 - pin.y / 1000,
-          longitude: 106.8 + pin.x / 1000,
+          latitude: pinLat,
+          longitude: pinLng,
           submit: false,
         });
         reportId = created.id;
@@ -214,6 +342,11 @@ export default function CitizenReportFormView() {
       } else {
         addReport(draftObj);
       }
+      try {
+        sessionStorage.removeItem(reportDraftKey);
+      } catch {
+        // ignore
+      }
       setDoneState('draft');
     } catch {
       // Offline fallback
@@ -221,6 +354,11 @@ export default function CitizenReportFormView() {
         updateDraftReport(editingDraft.id, draftObj);
       } else {
         addReport(draftObj);
+      }
+      try {
+        sessionStorage.removeItem(reportDraftKey);
+      } catch {
+        // ignore
       }
       setDoneState('draft');
     } finally {
@@ -269,7 +407,7 @@ export default function CitizenReportFormView() {
           : undefined,
       narrative: submitted.narrative,
       proposedAddress: submitted.proposedAddress ?? p.locationDesc,
-      coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
+      coordinates: { lat: pinLat, lng: pinLng },
       photoUrl: photos[0].url,
       photoUrls: photos.map((ph) => ph.url),
       votesAgree: 0,
@@ -288,8 +426,8 @@ export default function CitizenReportFormView() {
           category: category as ReportCategory,
           narrative: narrative.trim(),
           proposed_address: proposedAddress.trim(),
-          latitude: -6.1 - pin.y / 1000,
-          longitude: 106.8 + pin.x / 1000,
+          latitude: pinLat,
+          longitude: pinLng,
         });
       } else {
         setSubmitStep('Membuat laporan baru...');
@@ -297,8 +435,8 @@ export default function CitizenReportFormView() {
           category: category as ReportCategory,
           narrative: narrative.trim(),
           proposed_address: proposedAddress.trim(),
-          latitude: -6.1 - pin.y / 1000,
-          longitude: 106.8 + pin.x / 1000,
+          latitude: pinLat,
+          longitude: pinLng,
           submit: false,
         });
         reportId = created.id;
@@ -327,6 +465,11 @@ export default function CitizenReportFormView() {
       } else {
         addReport(submitted, queueItem);
       }
+      try {
+        sessionStorage.removeItem(reportDraftKey);
+      } catch {
+        // ignore
+      }
       setDoneState('sent');
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -347,6 +490,11 @@ export default function CitizenReportFormView() {
         updateDraftReport(editingDraft.id, submitted, queueItem);
       } else {
         addReport(submitted, queueItem);
+      }
+      try {
+        sessionStorage.removeItem(reportDraftKey);
+      } catch {
+        // ignore
       }
       setDoneState('sent');
     } finally {
@@ -414,7 +562,7 @@ export default function CitizenReportFormView() {
         : 'Usulan titik lokasi kanonik paket.',
       proposedAddress: proposed,
       proposedPrecision: level,
-      coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
+      coordinates: { lat: pinLat, lng: pinLng },
       photoUrl: claimPhoto,
       photoUrls: [claimPhoto],
       votesAgree: 0,
@@ -426,6 +574,11 @@ export default function CitizenReportFormView() {
     };
 
     addClaim(claim, item);
+    try {
+      sessionStorage.removeItem(claimDraftKey);
+    } catch {
+      // ignore
+    }
     setDoneState('claim-sent');
   };
 
@@ -694,7 +847,7 @@ export default function CitizenReportFormView() {
                   {!submitting && (
                     <button
                       type="button"
-                      onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))}
+                      onClick={() => handleRemovePhoto(i)}
                       className="absolute top-2 right-2 rounded-full bg-slate-900/75 p-1.5 text-white transition hover:bg-slate-900"
                       aria-label="Hapus foto"
                     >
@@ -740,7 +893,12 @@ export default function CitizenReportFormView() {
           {/* 5. Titik Pengamatan */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
             <p className="mb-3 text-base font-bold text-slate-900">5. Titik koordinat pengamatan</p>
-            <MiniPinMap value={pin} onChange={setPin} />
+            <MiniPinMap
+              value={pin}
+              onChange={onPinChange}
+              centerLat={p.mapCoordinates?.lat}
+              centerLng={p.mapCoordinates?.lng}
+            />
           </div>
 
           {/* Tombol Aksi (Draft-First / Submit) */}
@@ -882,7 +1040,7 @@ export default function CitizenReportFormView() {
               {SAMPLE_DATA && !claimPhoto && (
                 <button
                   type="button"
-                  onClick={() => setClaimPhoto('/photos/tpst-bantargebang.svg')}
+                  onClick={() => updateClaimPhoto('/photos/tpst-bantargebang.svg')}
                   className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-slate-100"
                 >
                   + Gunakan Foto Simulasi
@@ -900,7 +1058,7 @@ export default function CitizenReportFormView() {
                   />
                   <button
                     type="button"
-                    onClick={() => setClaimPhoto(null)}
+                    onClick={() => updateClaimPhoto(null)}
                     className="absolute top-3 right-3 rounded-lg bg-slate-900/75 px-3 py-1.5 text-xs font-semibold text-white"
                   >
                     Ganti foto
@@ -918,7 +1076,7 @@ export default function CitizenReportFormView() {
                   accept="image/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) setClaimPhoto(URL.createObjectURL(f));
+                    if (f) updateClaimPhoto(URL.createObjectURL(f));
                   }}
                   className="sr-only"
                 />
@@ -930,7 +1088,9 @@ export default function CitizenReportFormView() {
             <p className="mb-3 text-base font-bold text-slate-900">4. Titik koordinat usulan</p>
             <MiniPinMap
               value={pin}
-              onChange={setPin}
+              onChange={onPinChange}
+              centerLat={p.mapCoordinates?.lat}
+              centerLng={p.mapCoordinates?.lng}
               estimate={{ x: 50, y: 50, r: 28 }}
               label="Lingkaran putus-putus: area perkiraan SPSE · Pin biru: titik usulan Anda"
             />
