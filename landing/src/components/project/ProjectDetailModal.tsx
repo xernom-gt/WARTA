@@ -1,16 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowRight,
   Building2,
   Camera,
   Database,
   FilePlus2,
+  Loader2,
   MapPinned,
   MessageSquareText,
   X,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { getProject } from '../../data/wartaData';
+import type { ProjectPackage } from '../../types/warta';
+import { detailToProjectPackage, projectsService } from '../../services/projects';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
 import ContractRiskBadges from './ContractRiskBadges';
@@ -21,6 +24,7 @@ const NO_CONTRACT = 'Nilai kontrak belum tersedia di sumber publik.';
 
 export default function ProjectDetailModal() {
   const { activeScreen, selectedProjectId, navigate, compactRupiah, queue } = useWarta();
+  const [projectDetail, setProjectDetail] = useState<ProjectPackage | null>(null);
 
   useEffect(() => {
     if (activeScreen !== 'detail') return;
@@ -29,8 +33,100 @@ export default function ProjectDetailModal() {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeScreen, navigate]);
 
+  useEffect(() => {
+    if (activeScreen !== 'detail' || !selectedProjectId) return;
+
+    const controller = new AbortController();
+
+    projectsService
+      .getProjectById(selectedProjectId, controller.signal)
+      .then((detail) => {
+        setProjectDetail(detailToProjectPackage(detail));
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        try {
+          const fallback = getProject(selectedProjectId);
+          setProjectDetail(fallback);
+        } catch {
+          setProjectDetail(null);
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeScreen, selectedProjectId]);
+
   if (activeScreen !== 'detail' || !selectedProjectId) return null;
-  const p = getProject(selectedProjectId);
+
+  const loading = projectDetail === null || projectDetail.id !== selectedProjectId;
+  const p = projectDetail;
+
+  if (loading && !p) {
+    return (
+      <div
+        className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/50 backdrop-blur-xs sm:items-center sm:p-4"
+        role="dialog"
+        aria-modal
+        aria-labelledby="detail-title-loading"
+      >
+        <div className="max-h-[92vh] w-full max-w-3xl animate-slide-up overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-8 shadow-2xl sm:rounded-2xl">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-5">
+            <div className="flex items-center gap-3">
+              <Loader2 className="size-6 animate-spin text-brand" />
+              <h2 id="detail-title-loading" className="text-xl font-bold text-slate-900">
+                Memuat detail paket proyek...
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('peta')}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              aria-label="Tutup detail"
+            >
+              <X className="size-5" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="mt-8 space-y-6">
+            <div className="shimmer h-8 w-2/3 rounded-xl" />
+            <div className="shimmer h-5 w-1/3 rounded-xl" />
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="shimmer h-24 rounded-xl" />
+              <div className="shimmer h-24 rounded-xl" />
+              <div className="shimmer h-24 rounded-xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!p) {
+    return (
+      <div
+        className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/50 backdrop-blur-xs sm:items-center sm:p-4"
+        role="dialog"
+        aria-modal
+        aria-labelledby="detail-title-error"
+      >
+        <div className="max-h-[92vh] w-full max-w-md animate-slide-up rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-2xl">
+          <h2 id="detail-title-error" className="text-lg font-bold text-slate-900">
+            Paket Proyek Tidak Ditemukan
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Data paket proyek yang Anda cari tidak tersedia atau belum terdaftar di sistem.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('peta')}
+            className="mt-6 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+          >
+            Kembali ke Peta
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const reports = queue.filter((q) => q.projectId === p.id);
   const money = (c: string, f: string) => (compactRupiah ? c : f);
 
@@ -144,7 +240,7 @@ export default function ProjectDetailModal() {
                 </p>
               )}
             </div>
-            {p.subLocations && (
+            {p.subLocations && p.subLocations.length > 0 && (
               <div className="pt-1">
                 <SubLocationTabs locations={p.subLocations} microcopy={p.subLocationsMicrocopy} />
               </div>
@@ -157,9 +253,9 @@ export default function ProjectDetailModal() {
             <ContractRiskBadges flags={p.riskFlags} />
           </section>
 
-          {p.isRetender && p.retenderMicrocopy && (
+          {p.isRetender && p.failedTenders && p.failedTenders.length > 0 && (
             <TenderHistoryAccordion
-              title={p.retenderMicrocopy}
+              title={p.retenderMicrocopy || 'Riwayat Tender Ulang'}
               tenders={p.failedTenders}
               currentCode={p.spseCode}
             />

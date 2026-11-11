@@ -22,7 +22,7 @@ import { useWarta } from '../../context/WartaContext';
 import { REPORT_CATEGORY_LABELS, getProject } from '../../data/wartaData';
 import { cn } from '@/lib/utils';
 import StatusBadge from '../common/StatusBadge';
-import type { CitizenClaim, CitizenReport, ReportStatus, VoteRecord } from '../../types/warta';
+import type { CitizenClaim, CitizenReport, VoteRecord } from '../../types/warta';
 import { userService, type MyClaimDTO, type MyVoteDTO } from '../../services/user';
 
 type Tab = 'laporan' | 'klaim' | 'verifikasi';
@@ -183,7 +183,12 @@ function ItemDetailModal({
                     ? 'Detail Klaim Lokasi'
                     : 'Detail Riwayat Suara'}
               </span>
-              {status && <StatusBadge status={status as ReportStatus} size="sm" />}
+              {status && (
+                <StatusBadge
+                  status={status as React.ComponentProps<typeof StatusBadge>['status']}
+                  size="sm"
+                />
+              )}
             </div>
             <h2 id="profile-item-modal-title" className="text-lg leading-snug font-extrabold text-slate-900 sm:text-xl">
               {projectTitle}

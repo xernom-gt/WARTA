@@ -43,13 +43,13 @@ export default function MiniPinMap({
   const [locating, setLocating] = useState(false);
   const [addressPreview, setAddressPreview] = useState<string>(value.address ?? '');
 
-  const currentLat = value.lat ?? (centerLat ?? -6.8175 - value.y / 1000);
-  const currentLng = value.lng ?? (centerLng ?? 107.1425 + value.x / 1000);
+  const currentLat = value.lat ?? (centerLat ?? -6.1 - value.y / 1000);
+  const currentLng = value.lng ?? (centerLng ?? 106.8 + value.x / 1000);
 
   // Simpan titik asal default
   const originRef = useRef<{ lat: number; lng: number; x: number; y: number; address?: string }>({
-    lat: centerLat ?? value.lat ?? -6.8175 - value.y / 1000,
-    lng: centerLng ?? value.lng ?? 107.1425 + value.x / 1000,
+    lat: centerLat ?? value.lat ?? -6.1 - value.y / 1000,
+    lng: centerLng ?? value.lng ?? 106.8 + value.x / 1000,
     x: value.x,
     y: value.y,
     address: value.address,
@@ -101,8 +101,8 @@ export default function MiniPinMap({
 
   const updatePosition = useCallback(
     async (lat: number, lng: number) => {
-      const x = Math.round(Math.min(98, Math.max(2, (lng - 107.1425) * 1000)) * 10) / 10;
-      const y = Math.round(Math.min(98, Math.max(2, (-6.8175 - lat) * 1000)) * 10) / 10;
+      const x = Math.round(Math.min(98, Math.max(2, (lng - 106.8) * 1000)) * 10) / 10;
+      const y = Math.round(Math.min(98, Math.max(2, (-6.1 - lat) * 1000)) * 10) / 10;
 
       const addr = await reverseGeocode(lat, lng);
       if (!isMountedRef.current) return;

@@ -4,8 +4,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config carries every runtime setting the API needs. Values are read once on
@@ -67,7 +70,7 @@ type Config struct {
 
 const (
 	defaultPort          = "3000"
-	defaultDatabaseURL   = "postgres://warta:warta@localhost:5433/warta?sslmode=disable"
+	defaultDatabaseURL   = "postgres://warta:warta@localhost:5435/warta?sslmode=disable"
 	defaultJWTTTLSeconds = 3600
 	defaultLoginRate     = 10
 	defaultRegisterRate  = 5
@@ -79,10 +82,19 @@ const (
 
 var errEnv = "config: %s must be a positive integer, got %q"
 
-// Load reads the environment and returns a validated Config.
+// Load reads the environment and returns a validated Config. The nearest
+// .env file is applied first, so plain `go run .` works without exports.
 func Load() (Config, error) {
-	port, ok := os.LookupEnv("API_PORT")
-	if !ok || port == "" {
+	if err := loadDotEnv(); err != nil {
+		return Config{}, err
+	}
+
+	// Railway sets PORT; API_PORT is local override
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = os.Getenv("API_PORT")
+	}
+	if port == "" {
 		port = defaultPort
 	}
 
@@ -142,6 +154,32 @@ func Load() (Config, error) {
 	cfg.JWTSecret = []byte(secret)
 
 	return cfg, nil
+}
+
+// loadDotEnv applies the nearest .env file, searching upward from the working
+// directory so `cd api && go run .` picks up the repo-root .env. Values are
+// set by name only when missing: the real environment always wins over .env
+// (§13.5 expose override semantics). A missing .env is fine — production
+// supplies values directly — but a malformed one fails fast.
+func loadDotEnv() error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	for {
+		path := filepath.Join(dir, ".env")
+		if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
+			if err := godotenv.Load(path); err != nil {
+				return fmt.Errorf("loading %s: %w", path, err)
+			}
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
 }
 
 func value(key, fallback string) string {
