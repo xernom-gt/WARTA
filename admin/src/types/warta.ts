@@ -27,6 +27,9 @@ export type MapCondition =
   | 'loading';
 
 export type ActiveScreen =
+  | 'dashboard'
+  | 'aduan'
+  | 'proyek'
   | 'peta'
   | 'detail'
   | 'lapor'
@@ -132,6 +135,7 @@ export interface VerificationItem {
   reportId?: string | null;
   claimId?: string | null;
   exifStatus?: string;
+  adminNote?: string;
 }
 
 
@@ -144,6 +148,7 @@ export interface CitizenReport {
   narrative: string;
   createdAt: string;
   status: ReportStatus;
+  adminNote?: string;
 }
 
 export interface CitizenClaim {

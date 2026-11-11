@@ -1,29 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
-  AlertTriangle,
   ArrowUpDown,
+  Building2,
   CheckCircle2,
   FilePlus2,
-  History,
   ImageOff,
-  Inbox,
-  Loader2,
   Map,
   MapPin,
   RefreshCw,
   Search,
-  ThumbsDown,
   ThumbsUp,
-  UserRound,
   X,
 } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
-import { DATASET_SUMMARY } from '../../data/wartaData';
 import { cn } from '@/lib/utils';
-import type { PrecisionLevel, VerificationItem, VoteChoice } from '../../types/warta';
+import type { PrecisionLevel, ReportStatus, VerificationItem } from '../../types/warta';
 import ExifCheckBadge from '../common/ExifCheckBadge';
 import StatusBadge from '../common/StatusBadge';
+import MiniPinMap from '../map/MiniPinMap';
 import {
   Select,
   SelectContent,
@@ -33,12 +27,11 @@ import {
 } from '../ui/select';
 import {
   verificationService,
-  type ItemVoteDTO,
   type VerificationItemDTO,
 } from '../../services/verification';
 
 type TypeFilter = 'semua' | 'laporan_kondisi' | 'klaim_lokasi';
-type StatusFilter = 'semua' | 'menunggu' | 'terverifikasi' | 'diterima' | 'ditolak';
+type StatusFilter = 'semua' | 'menunggu' | 'terverifikasi' | 'diterima' | 'ditolak' | 'selesai';
 type SortKey = 'default' | 'dukungan' | 'kontra';
 
 const TYPE_LABEL: Record<VerificationItem['itemType'], string> = {
@@ -78,7 +71,7 @@ function dtoToItem(dto: VerificationItemDTO): VerificationItem {
     votesDisagree: dto.votes_disagree,
     targetVotes: dto.target_votes,
     voters: dto.voters ?? [],
-    status: dto.status,
+    status: dto.status as VerificationItem['status'],
     reportId: dto.report_id,
     claimId: dto.claim_id,
   };
@@ -87,46 +80,36 @@ function dtoToItem(dto: VerificationItemDTO): VerificationItem {
 export default function VerificationQueueView() {
   const {
     queue,
-    canVote,
     navigate,
-    mapCondition,
-    setMapCondition,
     setQueue,
-    recordVote,
-    currentUser,
+    updateReportStatus,
+    setIsCreateProjectOpen,
   } = useWarta();
-
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [type, setType] = useState<TypeFilter>('semua');
   const [status, setStatus] = useState<StatusFilter>('semua');
-  const [sort, setSort] = useState<SortKey>('default');
+  const [sort, setSort] = useState<SortKey>('dukungan');
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const [loadingQueue, setLoadingQueue] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [votesHistory, setVotesHistory] = useState<ItemVoteDTO[]>([]);
-  const [loadingVotes, setLoadingVotes] = useState(false);
-
-  const [votingInProgress, setVotingInProgress] = useState(false);
-  const [voteFeedback, setVoteFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  // State Form Tindak Lanjut Admin
+  const [adminNextStatus, setAdminNextStatus] = useState<ReportStatus>('menunggu');
+  const [adminNoteText, setAdminNoteText] = useState('');
+  const [adminUpdateSuccess, setAdminUpdateSuccess] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setLoadingQueue(true);
-    setLoadError(null);
     try {
       const res = await verificationService.getQueue({
-        status: status !== 'semua' ? status : undefined,
+        status: status !== 'semua' ? (status as VerificationItem['status']) : undefined,
         item_type: type !== 'semua' ? type : undefined,
-        limit: 100,
       });
       if (res.data && res.data.length > 0) {
-        const mapped = res.data.map(dtoToItem);
-        setQueue(mapped);
+        setQueue(res.data.map(dtoToItem));
       }
     } catch {
-      // In case of local network error or mock mode fallback
-      setLoadError('Gagal memuat antrean langsung dari API backend.');
+      // Pertahankan queue mock jika offline/error
     } finally {
       setLoadingQueue(false);
     }
@@ -140,68 +123,20 @@ export default function VerificationQueueView() {
     return activeId ? queue.find((it) => it.id === activeId) ?? null : null;
   }, [activeId, queue]);
 
-  const fetchVotes = useCallback(async (itemId: string) => {
-    setLoadingVotes(true);
-    try {
-      const res = await verificationService.getVotes(itemId);
-      setVotesHistory(res.data ?? []);
-    } catch {
-      setVotesHistory([]);
-    } finally {
-      setLoadingVotes(false);
-    }
-  }, []);
-
+  // Sinkronisasi state form admin saat modal detail dibuka
   useEffect(() => {
-    if (activeId) {
-      setVoteFeedback(null);
-      fetchVotes(activeId);
-    } else {
-      setVotesHistory([]);
+    if (active) {
+      setAdminNextStatus((active.status as ReportStatus) || 'menunggu');
+      setAdminNoteText(active.adminNote || '');
+      setAdminUpdateSuccess(false);
     }
-  }, [activeId, fetchVotes]);
+  }, [active]);
 
-  const handleCastVote = async (choice: VoteChoice) => {
-    if (!active || votingInProgress) return;
-    setVotingInProgress(true);
-    setVoteFeedback(null);
-
-    try {
-      const res = await verificationService.castVote(active.id, choice);
-      const isAgree = choice === 'setuju';
-      const updatedItem: VerificationItem = {
-        ...active,
-        votesAgree: res.resolution.votes_agree,
-        votesDisagree: res.resolution.votes_disagree,
-        status: res.resolution.status as VerificationItem['status'],
-        voters: [...active.voters, currentUser ?? 'Warga'],
-      };
-
-      recordVote(
-        {
-          itemId: active.id,
-          projectId: active.projectId,
-          projectTitle: active.projectTitle,
-          itemType: active.itemType,
-          authorDisplayName: active.authorDisplayName,
-          choice,
-          votedAt: 'Baru saja',
-        },
-        updatedItem,
-      );
-
-      setVoteFeedback({
-        type: 'ok',
-        text: `Suara "${isAgree ? 'Setuju' : 'Tidak Setuju'}" berhasil dicatat dalam konsensus warga.`,
-      });
-      fetchVotes(active.id);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: { message?: string } } } };
-      const msg = e.response?.data?.error?.message ?? 'Gagal mengirim suara ke server.';
-      setVoteFeedback({ type: 'err', text: msg });
-    } finally {
-      setVotingInProgress(false);
-    }
+  const handleAdminSaveStatus = () => {
+    if (!active) return;
+    updateReportStatus(active.id, adminNextStatus, adminNoteText.trim());
+    setAdminUpdateSuccess(true);
+    setTimeout(() => setAdminUpdateSuccess(false), 2500);
   };
 
   const list = useMemo(() => {
@@ -222,8 +157,11 @@ export default function VerificationQueueView() {
   }, [queue, q, type, status, sort]);
 
   const pendingCount = queue.filter((it) => it.status === 'menunggu').length;
-  const verifiedCount = queue.filter((it) => it.status === 'terverifikasi' || it.status === 'diterima').length;
-  const filterActive = type !== 'semua' || status !== 'semua' || sort !== 'default' || q.trim() !== '';
+  const verifiedCount = queue.filter(
+    (it) => it.status === 'terverifikasi' || (it.status as string) === 'diproses',
+  ).length;
+  const resolvedCount = queue.filter((it) => it.status === 'selesai').length;
+  const filterActive = type !== 'semua' || status !== 'semua' || sort !== 'dukungan' || q.trim() !== '';
 
   useEffect(() => {
     if (!active) return;
@@ -238,286 +176,224 @@ export default function VerificationQueueView() {
     setQ('');
     setType('semua');
     setStatus('semua');
-    setSort('default');
+    setSort('dukungan');
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl flex-1 space-y-10 px-4 py-10 sm:px-6 sm:py-12">
+    <div className="mx-auto w-full max-w-7xl flex-1 space-y-10 px-4 py-8 sm:px-6 sm:py-10">
+      {/* 1. Header Pengelolaan Aduan */}
       <section className="flex flex-col justify-between gap-6 border-b border-slate-200 pb-8 lg:flex-row lg:items-end">
-        <div className="max-w-2xl space-y-3">
+        <div className="max-w-2xl space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-lg bg-brand/10 px-3 py-1 text-xs font-bold text-brand">
+            <Building2 className="size-3.5" />
+            Pengelolaan & Evaluasi Tindak Lanjut
+          </div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
-              Aduan & Verifikasi Warga
+              Aduan & Aspirasi Warga
             </h1>
             <button
               onClick={fetchQueue}
-              title="Perbarui antrean"
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-brand transition"
+              title="Perbarui data aduan"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-brand transition cursor-pointer"
             >
               <RefreshCw className={cn('size-5', loadingQueue && 'animate-spin text-brand')} />
             </button>
           </div>
-          <p className="text-base leading-relaxed text-slate-600">
-            Pantau laporan kondisi fisik dan klaim lokasi proyek pemerintah secara terbuka. Setiap aduan diverifikasi bersama melalui kuorum 3 suara warga.
+          <p className="text-base text-slate-600">
+            Tinjau foto bukti lapangan dan titik koordinat pengamatan warga. Urutkan prioritas berdasarkan dukungan komunitas dan perbarui status pengerjaan secara transparan.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            id="cta-create-report"
-            onClick={() => navigate('lapor')}
-            className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-brand px-5 py-3 text-base font-bold text-white shadow-xs transition hover:bg-brand-dark"
+            onClick={() => setIsCreateProjectOpen(true)}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-xs hover:bg-brand-dark transition cursor-pointer"
           >
-            <FilePlus2 className="size-5 shrink-0" />
-            + Buat Pengaduan
+            <FilePlus2 className="size-4 shrink-0" />
+            + Tambah Proyek
           </button>
           <button
-            id="cta-open-map"
             onClick={() => navigate('peta')}
-            className="inline-flex min-h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-base font-semibold text-slate-800 transition hover:bg-slate-100"
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100 transition cursor-pointer"
           >
-            <Map className="size-5 shrink-0 text-brand" />
-            Proyek & Peta
+            <Map className="size-4 shrink-0 text-brand" />
+            Peta Pengawasan
           </button>
         </div>
       </section>
 
-      <section aria-label="Ringkasan transparansi aduan" className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+      {/* 2. Kartu Ringkasan Status Aduan */}
+      <section aria-label="Ringkasan aduan" className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="border-l-2 border-brand pl-4">
           <p className="text-3xl font-black text-slate-900 tabular-nums">{queue.length}</p>
-          <p className="mt-1 text-sm font-medium text-slate-600">Total Aduan Masuk</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">Total Aduan Terkumpul</p>
         </div>
         <div className="border-l-2 border-wait-border pl-4">
           <p className="text-3xl font-black text-wait-text tabular-nums">{pendingCount}</p>
-          <p className="mt-1 text-sm font-medium text-slate-600">Menunggu Kuorum (3 Suara)</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">Menunggu Tindak Lanjut</p>
+        </div>
+        <div className="border-l-2 border-sky-400 pl-4">
+          <p className="text-3xl font-black text-sky-700 tabular-nums">{verifiedCount}</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">Sedang Ditangani Dinas</p>
         </div>
         <div className="border-l-2 border-ok-border pl-4">
-          <p className="text-3xl font-black text-ok-text tabular-nums">{verifiedCount}</p>
-          <p className="mt-1 text-sm font-medium text-slate-600">Terverifikasi Warga</p>
-        </div>
-        <div className="border-l-2 border-slate-300 pl-4">
-          <p className="text-3xl font-black text-slate-900 tabular-nums">{DATASET_SUMMARY.uniqueProjects}</p>
-          <p className="mt-1 text-sm font-medium text-slate-600">Paket Proyek SPSE</p>
+          <p className="text-3xl font-black text-ok-text tabular-nums">{resolvedCount}</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">Penanganan Selesai</p>
         </div>
       </section>
 
+      {/* 3. Filter, Pencarian, & Sortir Prioritas Komunitas */}
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-slate-300 bg-slate-50/60 px-3.5 transition-colors focus-within:border-action-border focus-within:bg-white focus-within:ring-2 focus-within:ring-action-border/30">
+          <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-slate-300 bg-slate-50/60 px-3.5 transition-colors focus-within:border-brand focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/20">
             <Search className="size-4 shrink-0 text-slate-500" />
             <input
               id="verify-search"
               aria-label="Cari aduan warga"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Cari nama proyek, isi laporan, kode tender, atau pelapor…"
-              className="w-full min-w-0 bg-transparent py-2.5 text-base text-slate-900 outline-none placeholder:text-slate-500"
+              placeholder="Cari proyek, narasi aduan, kode SPSE, atau nama pelapor..."
+              className="w-full min-w-0 bg-transparent py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-500"
             />
           </label>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:flex lg:items-center">
             <Select value={type} onValueChange={(v) => setType(v as TypeFilter)}>
-              <SelectTrigger id="verify-type" aria-label="Filter jenis kiriman" className="h-11 sm:w-44">
-                <SelectValue />
+              <SelectTrigger id="verify-type" aria-label="Filter jenis kiriman" className="h-11 sm:w-44 text-xs font-semibold">
+                <SelectValue placeholder="Jenis Kiriman" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="semua">Semua jenis</SelectItem>
-                <SelectItem value="laporan_kondisi">Laporan kondisi</SelectItem>
-                <SelectItem value="klaim_lokasi">Klaim lokasi</SelectItem>
+                <SelectItem value="semua">Semua Jenis</SelectItem>
+                <SelectItem value="laporan_kondisi">Laporan Kondisi</SelectItem>
+                <SelectItem value="klaim_lokasi">Klaim Lokasi</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
-              <SelectTrigger id="verify-status" aria-label="Filter status verifikasi" className="h-11 sm:w-44">
-                <SelectValue />
+              <SelectTrigger id="verify-status" aria-label="Filter status aduan" className="h-11 sm:w-44 text-xs font-semibold">
+                <SelectValue placeholder="Status Aduan" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="semua">Semua status</SelectItem>
+                <SelectItem value="semua">Semua Status</SelectItem>
                 <SelectItem value="menunggu">Menunggu</SelectItem>
-                <SelectItem value="terverifikasi">Terverifikasi</SelectItem>
-                <SelectItem value="diterima">Diterima</SelectItem>
+                <SelectItem value="terverifikasi">Sedang Diproses</SelectItem>
+                <SelectItem value="selesai">Selesai</SelectItem>
                 <SelectItem value="ditolak">Ditolak</SelectItem>
               </SelectContent>
             </Select>
 
+            {/* Sort Prioritas Komunitas */}
             <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-              <SelectTrigger id="verify-sort" aria-label="Urutkan daftar aduan" className="h-11 sm:w-48">
-                <span className="flex min-w-0 items-center gap-2">
-                  <ArrowUpDown className="size-4 shrink-0 text-slate-500" />
-                  <SelectValue />
-                </span>
+              <SelectTrigger id="verify-sort" aria-label="Urutkan prioritas" className="h-11 sm:w-56 text-xs font-bold text-brand">
+                <ArrowUpDown className="size-3.5 mr-1 text-brand" />
+                <SelectValue placeholder="Urutkan Prioritas" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">Terbaru</SelectItem>
-                <SelectItem value="dukungan">Dukungan terbanyak</SelectItem>
-                <SelectItem value="kontra">Penolakan terbanyak</SelectItem>
+                <SelectItem value="dukungan">🔥 Prioritas: Vote Tertinggi</SelectItem>
+                <SelectItem value="default">Terbaru Masuk</SelectItem>
+                <SelectItem value="kontra">Kontra Terbanyak</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
         {filterActive && (
-          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm text-slate-600">
+          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-600">
             <span>
-              Menampilkan <b className="font-semibold text-slate-900 tabular-nums">{list.length}</b> dari{' '}
-              <span className="tabular-nums">{queue.length}</span> kiriman warga
+              Menampilkan <strong>{list.length}</strong> dari {queue.length} aduan
             </span>
             <button
-              id="verify-reset"
               onClick={resetFilter}
-              className="font-semibold text-action-border underline-offset-2 hover:underline"
+              className="font-bold text-brand hover:underline cursor-pointer"
             >
-              Reset filter
+              Reset Filter
             </button>
           </div>
         )}
       </section>
 
-      {mapCondition === 'loading' || loadingQueue ? (
-        <div
-          role="status"
-          className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center"
-        >
-          <Loader2 className="mb-3 size-8 animate-spin text-brand" />
-          <p className="text-base font-bold text-slate-900">Memuat antrean verifikasi…</p>
-          <p className="mt-1 text-sm text-slate-600">Menyinkronkan kiriman terbaru dari antrean publik.</p>
-        </div>
-      ) : mapCondition === 'tile-error' || loadError ? (
-        <div
-          role="alert"
-          className="flex flex-col items-center justify-center rounded-2xl border border-bad-border bg-bad-bg px-6 py-12 text-center text-bad-text"
-        >
-          <AlertTriangle className="mb-3 size-8" />
-          <p className="text-base font-bold">Gagal memuat antrean verifikasi</p>
-          <p className="mt-1 max-w-md text-sm">
-            {loadError || 'Terjadi gangguan saat mengambil data kiriman warga.'}
-          </p>
-          <button
-            onClick={() => {
-              setLoadError(null);
-              setMapCondition('normal');
-              fetchQueue();
-            }}
-            className="mt-4 rounded-xl bg-bad-text px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-          >
-            Coba Muat Ulang
-          </button>
-        </div>
-      ) : list.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-          <span className="mb-4 grid size-14 place-items-center rounded-full bg-slate-100 text-slate-600">
-            <Inbox className="size-7" />
-          </span>
-          <h2 className="text-lg font-bold text-slate-900">
-            {queue.length === 0 ? 'Belum ada aduan warga yang masuk' : 'Tidak ada kiriman yang cocok'}
-          </h2>
-          <p className="mt-2 max-w-md text-base leading-relaxed text-slate-600">
-            {queue.length === 0
-              ? 'Jadilah warga pertama yang mengirim laporan kondisi fisik atau klaim titik lokasi proyek di sekitar tempat tinggal Anda.'
-              : 'Longgarkan kata kunci pencarian atau atur ulang filter jenis dan status di atas.'}
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            {filterActive ? (
-              <button
-                onClick={resetFilter}
-                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
-              >
-                Reset Filter
-              </button>
-            ) : (
-              <button
-                onClick={() => navigate('lapor')}
-                className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-base font-bold text-white hover:bg-brand-dark"
-              >
-                <FilePlus2 className="size-5" />
-                + Buat Pengaduan Pertama
-              </button>
-            )}
-          </div>
+      {/* 4. Daftar Aduan Warga (Tabel / Card List) */}
+      {list.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">
+          Tidak ada aduan yang cocok dengan kriteria pencarian.
         </div>
       ) : (
-        <ul className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {list.map((it) => (
-            <li key={it.id} className="flex">
-              <article className="group flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs transition hover:border-slate-300 hover:shadow-md">
-                <button
-                  id={`queue-${it.id}`}
-                  type="button"
-                  onClick={() => setActiveId(it.id)}
-                  className="flex flex-1 flex-col text-left focus-visible:outline-none"
-                >
-                  <div className="relative aspect-16/10 w-full overflow-hidden bg-slate-100">
-                    <CardPhoto src={it.photoUrl} alt={`Foto lapangan ${it.projectTitle}`} />
-                    <div className="absolute top-3 left-3">
+            <li key={it.id}>
+              <article
+                onClick={() => setActiveId(it.id)}
+                className="group flex flex-col justify-between h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:border-brand/40 hover:shadow-md transition cursor-pointer"
+              >
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-700">
+                        <ThumbsUp className="size-3" />
+                        {it.votesAgree} Vote Warga
+                      </span>
                       <StatusBadge status={it.status} />
                     </div>
+                    <span className="text-xs text-slate-400">
+                      {it.createdAt}
+                    </span>
                   </div>
 
-                  <div className="flex flex-1 flex-col justify-between gap-4 p-6">
-                    <div className="space-y-2.5">
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700">
-                          {TYPE_LABEL[it.itemType]}
-                        </span>
-                        <span>·</span>
-                        <span>{it.categoryLabel}</span>
-                      </div>
-
-                      <h2 className="line-clamp-2 text-lg leading-snug font-bold text-slate-900 group-hover:text-brand">
-                        {it.projectTitle}
-                      </h2>
-
-                      <p className="line-clamp-3 text-base leading-relaxed text-slate-700">
-                        {it.narrative}
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-600">
-                      <p className="flex items-center gap-1.5 truncate">
-                        <MapPin className="size-4 shrink-0 text-brand" />
-                        <span className="truncate">{it.proposedAddress}</span>
-                      </p>
-
-                      <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                        <span className="flex items-center gap-1.5 font-medium text-slate-700">
-                          <UserRound className="size-3.5 text-slate-500" />
-                          {it.authorDisplayName}
-                        </span>
-                        <span>{it.createdAt}</span>
-                      </div>
-
-                      <div className="space-y-1.5 pt-1">
-                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
-                          <span>Kuorum Verifikasi</span>
-                          <span className="tabular-nums">
-                            {it.votesAgree}/{it.targetVotes} setuju
-                          </span>
-                        </div>
-                        <Quorum
-                          agree={it.votesAgree}
-                          disagree={it.votesDisagree}
-                          target={it.targetVotes}
-                          compact
-                        />
-                      </div>
-                    </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 group-hover:text-brand transition line-clamp-1">
+                      {it.projectTitle}
+                    </h3>
+                    <p className="text-xs text-slate-500 truncate">
+                      {it.itemType === 'klaim_lokasi' ? 'Usulan Lokasi Kanonik' : it.categoryLabel} · Oleh {it.authorDisplayName}
+                    </p>
                   </div>
-                </button>
+
+                  <p className="text-xs text-slate-700 line-clamp-2 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    "{it.narrative}"
+                  </p>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="flex items-center gap-1 truncate">
+                      <MapPin className="size-3 text-brand shrink-0" />
+                      <span className="truncate">{it.proposedAddress}</span>
+                    </span>
+                    <ExifCheckBadge valid={it.exifValid} status={it.exifStatus} />
+                  </div>
+
+                  {it.adminNote && (
+                    <div className="rounded-lg bg-sky-50/80 px-2.5 py-1.5 text-[11px] font-medium text-sky-900 border border-sky-100">
+                      <strong>🏛️ Tanggapan Dinas:</strong> {it.adminNote}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-mono text-[11px]">
+                    SPSE #{it.spseCode}
+                  </span>
+                  <button
+                    type="button"
+                    className="font-bold text-brand hover:underline"
+                  >
+                    Tindak Lanjuti & Kelola Status →
+                  </button>
+                </div>
               </article>
             </li>
           ))}
         </ul>
       )}
 
+      {/* 5. Modal Detail & Aksi Admin */}
       {active && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="verify-detail-title"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in"
         >
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl p-6 sm:p-8">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
               <div className="min-w-0">
                 <div className="mb-1.5 flex flex-wrap items-center gap-2">
                   <StatusBadge status={active.status} />
@@ -526,375 +402,187 @@ export default function VerificationQueueView() {
                   </span>
                   <span className="text-xs font-medium text-slate-600">{active.categoryLabel}</span>
                 </div>
-                <h2 id="verify-detail-title" className="text-xl leading-snug font-extrabold text-slate-900">
+                <h2 className="text-xl font-black text-slate-900 leading-snug">
                   {active.projectTitle}
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-600">
-                  Kode Tender <span className="font-mono font-semibold">#{active.spseCode}</span> · {active.satker}
+                <p className="text-xs text-slate-500">
+                  Kode Tender #{active.spseCode} · {active.satker}
                 </p>
               </div>
               <button
                 onClick={() => setActiveId(null)}
-                aria-label="Tutup detail aduan"
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
               >
                 <X className="size-5" />
               </button>
             </div>
 
-            <div className="space-y-6 p-6">
-              <ModalPhoto src={active.photoUrl} alt={`Foto bukti ${active.projectTitle}`} />
+            <div className="mt-6 space-y-6">
+              {/* Foto Bukti */}
+              {active.photoUrl ? (
+                <div className="aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                  <img
+                    src={active.photoUrl}
+                    alt="Foto bukti pengaduan"
+                    className="size-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400">
+                  <ImageOff className="size-6 mr-2" /> Tidak ada foto bukti yang dilampirkan
+                </div>
+              )}
 
-              <dl className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2">
+              {/* Data Pelapor & Lokasi */}
+              <div className="grid gap-3 sm:grid-cols-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs">
                 <div>
-                  <dt className="text-xs font-semibold text-slate-600">Pelapor</dt>
-                  <dd className="mt-0.5 font-bold text-slate-900">{active.authorDisplayName}</dd>
+                  <span className="font-semibold text-slate-500">Warga Pelapor</span>
+                  <p className="font-bold text-slate-900 text-sm mt-0.5">{active.authorDisplayName}</p>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold text-slate-600">Waktu Kirim</dt>
-                  <dd className="mt-0.5 font-medium text-slate-800">{active.createdAt}</dd>
+                  <span className="font-semibold text-slate-500">Waktu Pengiriman</span>
+                  <p className="font-medium text-slate-800 text-sm mt-0.5">{active.createdAt}</p>
                 </div>
                 <div className="sm:col-span-2">
-                  <dt className="text-xs font-semibold text-slate-600">Lokasi Terlapor</dt>
-                  <dd className="mt-0.5 flex items-start gap-1.5 text-slate-800">
-                    <MapPin className="mt-0.5 size-4 shrink-0 text-brand" />
-                    <span>
-                      {active.proposedAddress}
-                      {active.distanceFromProject ? ` (${active.distanceFromProject})` : ''}
-                    </span>
-                  </dd>
+                  <span className="font-semibold text-slate-500">Lokasi Dilaporkan</span>
+                  <p className="flex items-center gap-1 font-semibold text-slate-900 text-sm mt-0.5">
+                    <MapPin className="size-4 text-brand shrink-0" />
+                    {active.proposedAddress}
+                  </p>
                 </div>
-              </dl>
+              </div>
 
-              {/* Badge Validitas GPS EXIF */}
-              <ExifCheckBadge
-                valid={active.exifValid}
-                status={active.exifStatus}
-                notice={active.exifNotice}
-              />
+              {/* EXIF GPS Validasi */}
+              <ExifCheckBadge valid={active.exifValid} status={active.exifStatus} notice={active.exifNotice} />
 
-              <div className="space-y-2">
-                <h3 className="text-sm font-bold text-slate-900">Catatan Lapangan Warga</h3>
-                <p className="rounded-xl border border-slate-200 bg-white p-4 text-base leading-relaxed text-slate-800">
+              {/* Narasi Warga */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Uraian Masalah Lapangan dari Warga
+                </h3>
+                <p className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-800">
                   {active.narrative}
                 </p>
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-bold text-slate-900">Kuorum Verifikasi Warga</p>
-                  <p className="text-xs font-semibold text-slate-700 tabular-nums">
-                    {active.votesAgree} setuju · {active.votesDisagree} tidak setuju (target {active.targetVotes})
-                  </p>
-                </div>
-                <Quorum
-                  agree={active.votesAgree}
-                  disagree={active.votesDisagree}
-                  target={active.targetVotes}
-                />
-                <p className="mt-2 text-xs text-slate-600">
-                  {active.status !== 'menunggu'
-                    ? 'Verifikasi untuk kiriman ini sudah selesai.'
-                    : `Butuh ${Math.max(0, active.targetVotes - active.votesAgree)} suara setuju lagi agar berstatus Terverifikasi.`}
-                </p>
-              </div>
-
-              {voteFeedback && (
-                <div
-                  className={cn(
-                    'flex items-center gap-2 rounded-xl p-3 text-xs font-semibold',
-                    voteFeedback.type === 'ok'
-                      ? 'border border-ok-border bg-ok-bg text-ok-text'
-                      : 'border border-bad-border bg-bad-bg text-bad-text',
-                  )}
-                >
-                  {voteFeedback.type === 'ok' ? (
-                    <CheckCircle2 className="size-4 shrink-0" />
-                  ) : (
-                    <AlertCircle className="size-4 shrink-0" />
-                  )}
-                  <span>{voteFeedback.text}</span>
+              {/* Peta Lokasi Aduan (Leaflet OSM) */}
+              {active.coordinates && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Posisi Koordinat di Peta OpenStreetMap
+                  </h3>
+                  <MiniPinMap
+                    value={{
+                      x: 50,
+                      y: 50,
+                      lat: active.coordinates.lat || -6.8175,
+                      lng: active.coordinates.lng || 107.1425,
+                      address: active.proposedAddress,
+                    }}
+                    onChange={() => {}}
+                    centerLat={active.coordinates.lat || -6.8175}
+                    centerLng={active.coordinates.lng || 107.1425}
+                    heightClass="h-48"
+                  />
                 </div>
               )}
 
-              {/* Tombol voting Setuju / Tidak Setuju */}
-              <VoteButtons
-                id={active.id}
-                check={canVote(active)}
-                loading={votingInProgress}
-                onVote={handleCastVote}
-              />
+              {/* Transparansi Dukungan Warga (Kuorum) */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-900">Dukungan Warga Komunitas</span>
+                  <span className="font-semibold text-slate-700">
+                    {active.votesAgree} Setuju · {active.votesDisagree} Tidak Setuju
+                  </span>
+                </div>
+                <div className="flex h-2 w-full gap-1">
+                  {Array.from({ length: Math.max(active.targetVotes, active.votesAgree + active.votesDisagree, 3) }).map((_, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        'flex-1 rounded-full',
+                        i < active.votesAgree
+                          ? 'bg-ok-border'
+                          : i < active.votesAgree + active.votesDisagree
+                            ? 'bg-bad-border'
+                            : 'bg-slate-200',
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
 
-              {/* Riwayat Suara Pemilih */}
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <History className="size-4 text-slate-600" />
-                    <h4 className="text-sm font-bold text-slate-900">Riwayat Suara Pemilih</h4>
+              {/* ============================================================== */}
+              {/* PANEL TINDAK LANJUT ADMIN (FITUR UTAMA SCENE 4 VIDEO SKRIPSI) */}
+              {/* ============================================================== */}
+              <div className="rounded-2xl border-2 border-brand/20 bg-brand/5 p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Building2 className="size-5 text-brand" />
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Tindak Lanjut & Penetapan Status (Admin Instansi)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Ubah status penanganan agar warga langsung melihat progres perbaikan secara real-time
+                    </p>
                   </div>
-                  {loadingVotes && <Loader2 className="size-3.5 animate-spin text-brand" />}
                 </div>
 
-                {votesHistory.length === 0 ? (
-                  <p className="text-xs text-slate-500">
-                    {loadingVotes ? 'Memuat riwayat suara…' : 'Belum ada suara pemilih yang tercatat.'}
-                  </p>
-                ) : (
-                  <ul className="space-y-2 text-xs">
-                    {votesHistory.map((v) => (
-                      <li
-                        key={v.id}
-                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
-                      >
-                        <span className="font-mono text-slate-700">Warga #{v.user_id.slice(0, 8)}</span>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-bold',
-                              v.choice === 'setuju'
-                                ? 'bg-ok-bg text-ok-text'
-                                : 'bg-bad-bg text-bad-text',
-                            )}
-                          >
-                            {v.choice === 'setuju' ? (
-                              <ThumbsUp className="size-3" />
-                            ) : (
-                              <ThumbsDown className="size-3" />
-                            )}
-                            {v.choice === 'setuju' ? 'Setuju' : 'Tidak Setuju'}
-                          </span>
-                          <span className="text-slate-400">{v.created_at}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Status Penanganan Resmi
+                    </label>
+                    <select
+                      value={adminNextStatus}
+                      onChange={(e) => setAdminNextStatus(e.target.value as ReportStatus)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-brand"
+                    >
+                      <option value="menunggu">Menunggu Peninjauan</option>
+                      <option value="terverifikasi">Sedang Diproses (Dikerjakan Dinas)</option>
+                      <option value="selesai">Penanganan Selesai (Rampung)</option>
+                      <option value="ditolak">Ditolak / Tidak Sesuai</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Catatan Resmi / Tindak Lanjut Instansi
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={adminNoteText}
+                      onChange={(e) => setAdminNoteText(e.target.value)}
+                      placeholder="Contoh: Tim teknis Dinas PUPR telah melakukan survei ke lokasi. Perbaikan fisik trotoar dijadwalkan selesai dalam 14 hari kerja."
+                      className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-800 outline-none focus:border-brand"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-brand/10">
+                  {adminUpdateSuccess ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                      <CheckCircle2 className="size-4" /> Status & Catatan Berhasil Dipublikasikan!
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">
+                      Tersinkronisasi otomatis ke portal warga
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleAdminSaveStatus}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-6 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark transition cursor-pointer"
+                  >
+                    Simpan Status & Catatan
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function Quorum({
-  agree,
-  disagree,
-  target,
-  compact,
-}: {
-  agree: number;
-  disagree: number;
-  target: number;
-  compact?: boolean;
-}) {
-  const total = Math.max(target, agree + disagree, 1);
-  return (
-    <div
-      className={cn('flex gap-1.5', compact ? 'h-1.5 w-full' : 'h-2 w-full')}
-      role="img"
-      aria-label={`${agree} setuju, ${disagree} tidak setuju, target ${target} suara`}
-    >
-      {Array.from({ length: total }).map((_, i) => (
-        <span
-          key={i}
-          className={cn(
-            'flex-1 rounded-full transition-colors',
-            i < agree ? 'bg-ok-border' : i < agree + disagree ? 'bg-bad-border' : 'bg-slate-200',
-          )}
-        />
-      ))}
-    </div>
-  );
-}
-
-function VoteButtons({
-  id,
-  check,
-  loading,
-  onVote,
-}: {
-  id: string;
-  check: { allowed: boolean; reason?: string };
-  loading?: boolean;
-  onVote: (c: 'setuju' | 'tidak_setuju') => void;
-}) {
-  return (
-    <div className="space-y-3">
-      {!check.allowed && check.reason && (
-        <p
-          role="alert"
-          className="rounded-xl border border-wait-border bg-wait-bg px-3.5 py-2.5 text-sm leading-relaxed font-medium text-wait-text"
-        >
-          {check.reason}
-        </p>
-      )}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <button
-          id={`agree-${id}`}
-          disabled={!check.allowed || loading}
-          onClick={() => onVote('setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-ok-border bg-ok-bg px-4 text-sm font-bold text-ok-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
-        >
-          {loading ? <Loader2 className="size-4 animate-spin" /> : <ThumbsUp className="size-4 shrink-0" />}
-          Setuju (Sesuai Lapangan)
-        </button>
-        <button
-          id={`disagree-${id}`}
-          disabled={!check.allowed || loading}
-          onClick={() => onVote('tidak_setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-bad-border bg-bad-bg px-4 text-sm font-bold text-bad-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
-        >
-          {loading ? <Loader2 className="size-4 animate-spin" /> : <ThumbsDown className="size-4 shrink-0" />}
-          Tidak Setuju
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CardPhoto({ src, alt }: { src: string; alt: string }) {
-  const [err, setErr] = useState(false);
-  if (err || !src)
-    return (
-      <div className="flex h-full w-full items-center justify-center gap-2 bg-slate-100 text-xs text-slate-600">
-        <ImageOff className="size-4" /> Foto tidak dapat dimuat
-      </div>
-    );
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setErr(true)}
-      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-    />
-  );
-}
-
-function ModalPhoto({ src, alt }: { src: string; alt: string }) {
-  const [err, setErr] = useState(false);
-  if (err || !src)
-    return (
-      <div className="flex aspect-16/10 max-h-72 items-center justify-center gap-2 rounded-xl bg-slate-100 text-sm text-slate-600">
-        <ImageOff className="size-4" /> Foto tidak dapat dimuat
-      </div>
-    );
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setErr(true)}
-      className="aspect-16/10 max-h-80 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
-    />
-  );
-}
-
-
-function Quorum({
-  agree,
-  disagree,
-  target,
-  compact,
-}: {
-  agree: number;
-  disagree: number;
-  target: number;
-  compact?: boolean;
-}) {
-  const total = Math.max(target, agree + disagree, 1);
-  return (
-    <div
-      className={cn('flex gap-1.5', compact ? 'h-1.5 w-full' : 'h-2 w-full')}
-      role="img"
-      aria-label={`${agree} setuju, ${disagree} tidak setuju, target ${target} suara`}
-    >
-      {Array.from({ length: total }).map((_, i) => (
-        <span
-          key={i}
-          className={cn(
-            'flex-1 rounded-full transition-colors',
-            i < agree ? 'bg-ok-border' : i < agree + disagree ? 'bg-bad-border' : 'bg-slate-200',
-          )}
-        />
-      ))}
-    </div>
-  );
-}
-
-function VoteButtons({
-  id,
-  check,
-  onVote,
-}: {
-  id: string;
-  check: { allowed: boolean; reason?: string };
-  onVote: (c: 'setuju' | 'tidak_setuju') => void;
-}) {
-  return (
-    <div className="space-y-3">
-      {!check.allowed && check.reason && (
-        <p
-          role="alert"
-          className="rounded-xl border border-wait-border bg-wait-bg px-3.5 py-2.5 text-sm leading-relaxed font-medium text-wait-text"
-        >
-          {check.reason}
-        </p>
-      )}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <button
-          id={`agree-${id}`}
-          disabled={!check.allowed}
-          onClick={() => onVote('setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-ok-border bg-ok-bg px-4 text-sm font-bold text-ok-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
-        >
-          <ThumbsUp className="size-4 shrink-0" /> Setuju (Sesuai Lapangan)
-        </button>
-        <button
-          id={`disagree-${id}`}
-          disabled={!check.allowed}
-          onClick={() => onVote('tidak_setuju')}
-          className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-bad-border bg-bad-bg px-4 text-sm font-bold text-bad-text transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:brightness-100"
-        >
-          <ThumbsDown className="size-4 shrink-0" /> Tidak Setuju
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CardPhoto({ src, alt }: { src: string; alt: string }) {
-  const [err, setErr] = useState(false);
-  if (err)
-    return (
-      <div className="flex h-full w-full items-center justify-center gap-2 bg-slate-100 text-xs text-slate-600">
-        <ImageOff className="size-4" /> Foto tidak dapat dimuat
-      </div>
-    );
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setErr(true)}
-      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-    />
-  );
-}
-
-function ModalPhoto({ src, alt }: { src: string; alt: string }) {
-  const [err, setErr] = useState(false);
-  if (err)
-    return (
-      <div className="flex aspect-16/10 max-h-72 items-center justify-center gap-2 rounded-xl bg-slate-100 text-sm text-slate-600">
-        <ImageOff className="size-4" /> Foto tidak dapat dimuat
-      </div>
-    );
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setErr(true)}
-      className="aspect-16/10 max-h-80 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
-    />
   );
 }

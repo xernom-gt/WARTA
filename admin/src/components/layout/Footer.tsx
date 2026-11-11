@@ -10,7 +10,7 @@ export default function Footer() {
         </p>
         <p className="flex items-center gap-2">
           <Users className="size-4 shrink-0 text-slate-500" />
-          Tanpa admin: status berubah otomatis lewat kuorum 3 suara warga.
+          Portal Admin: Verifikasi lapangan & integrasi tindak lanjut instansi kota.
         </p>
       </div>
     </footer>
