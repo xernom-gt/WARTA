@@ -227,7 +227,6 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('hashchange', onHashChange);
     };
   }, []);
-
   const canVote = useCallback(
     (item: VerificationItem): { allowed: boolean; reason?: string } => {
       if (state.role === 'guest' || !state.currentUser)
@@ -310,7 +309,6 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       } catch {
         // ignore storage quota error
       }
-
       setState((s) => ({
         ...s,
         currentUser: profile.displayName,
@@ -351,7 +349,6 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       } catch {
         // ignore storage error
       }
-
       setState((s) => ({
         ...s,
         currentUser: profile.displayName,

@@ -1,8 +1,9 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { ArrowLeft, ImagePlus, Info, MapPinned, Send } from 'lucide-react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { ArrowLeft, ImagePlus, Info, Loader2, MapPinned, Send } from 'lucide-react';
 import { useWarta } from '../../context/WartaContext';
 import { SAMPLE_DATA, WARTA_PROJECTS, getProject } from '../../data/wartaData';
 import type { CitizenClaim, PrecisionLevel, VerificationItem } from '../../types/warta';
+
 import ExifCheckBadge, { EXIF_INVALID_TEXT, EXIF_VALID_TEXT } from '../common/ExifCheckBadge';
 import MiniPinMap from '../map/MiniPinMap';
 import {
@@ -12,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
+import { claimService } from '../../services/claim';
+import { projectService, type ProjectSummaryDTO } from '../../services/project';
 
 const LEVELS: { v: PrecisionLevel; l: string }[] = [
   { v: 'titik', l: 'Titik Pasti Koordinat' },
@@ -25,23 +28,49 @@ export default function ClaimLocationView() {
   const fallback = WARTA_PROJECTS.find((p) => p.id === 'proj-2') ?? WARTA_PROJECTS[0];
   const p = selectedProjectId ? getProject(selectedProjectId) : fallback;
 
+  const [availableProjects, setAvailableProjects] = useState<Array<{ id: string; title: string; spseCode: string; paguCompact: string }>>(
+    WARTA_PROJECTS.map((pr) => ({ id: pr.id, title: pr.title, spseCode: pr.spseCode, paguCompact: pr.paguCompact }))
+  );
+
+  useEffect(() => {
+    projectService.listProjects({ limit: 100 })
+      .then((res) => {
+        if (res.data && res.data.length > 0) {
+          setAvailableProjects(
+            res.data.map((pr: ProjectSummaryDTO) => ({
+              id: pr.id,
+              title: pr.title,
+              spseCode: pr.spse_code,
+              paguCompact: `Rp ${pr.pagu_amount}`,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [level, setLevel] = useState<PrecisionLevel>('alamat/ruas');
   const [address, setAddress] = useState('');
   const [kelurahan, setKelurahan] = useState('');
   const [kecamatan, setKecamatan] = useState('');
   const [landmark, setLandmark] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [exifValid, setExifValid] = useState(true);
   const [pin, setPin] = useState({ x: 62, y: 42 });
   const [errors, setErrors] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
 
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) setPhoto(URL.createObjectURL(f));
+    if (f) {
+      setPhotoFile(f);
+      setPhoto(URL.createObjectURL(f));
+    }
   };
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!currentUser) return setLoginOpen(true);
     const errs: string[] = [];
@@ -49,7 +78,9 @@ export default function ClaimLocationView() {
     if (!kecamatan.trim()) errs.push('Isi kecamatan.');
     if (!photo) errs.push('Unggah foto papan proyek.');
     setErrors(errs);
-    if (errs.length || !photo) return;
+    if (errs.length || !photo || submitting) return;
+
+    setSubmitting(true);
     const proposed = [
       address,
       kelurahan && `Kel. ${kelurahan}`,
@@ -58,44 +89,86 @@ export default function ClaimLocationView() {
     ]
       .filter(Boolean)
       .join(', ');
-    const claim: CitizenClaim = {
-      id: `clm-${Date.now()}`,
-      projectId: p.id,
-      projectTitle: p.title,
-      spseCode: p.spseCode,
-      proposedAddress: proposed,
-      proposedPrecision: level,
-      createdAt: 'Baru saja',
-      status: 'menunggu',
-    };
-    const item: VerificationItem = {
-      id: `ver-${Date.now()}`,
-      projectId: p.id,
-      projectTitle: p.title,
-      spseCode: p.spseCode,
-      satker: p.satker,
-      paguCompact: p.paguCompact,
-      itemType: 'klaim_lokasi',
-      categoryLabel: 'Klaim Lokasi Kanonik',
-      authorDisplayName: currentUser,
-      createdAt: 'Baru saja',
-      distanceFromProject: SAMPLE_DATA ? 'Dalam area perkiraan SPSE' : undefined,
-      exifValid: SAMPLE_DATA ? exifValid : undefined,
-      exifNotice: SAMPLE_DATA ? (exifValid ? EXIF_VALID_TEXT : EXIF_INVALID_TEXT) : undefined,
-      narrative: landmark ? `Patokan: ${landmark}` : 'Klaim titik lokasi proyek.',
-      proposedAddress: proposed,
-      proposedPrecision: level,
-      coordinates: { lat: -6.1 - pin.y / 1000, lng: 106.8 + pin.x / 1000 },
-      photoUrl: photo,
-      votesAgree: 0,
-      votesDisagree: 0,
-      targetVotes: 3,
-      voters: [],
-      status: 'menunggu',
-    };
-    addClaim(claim, item);
-    setSent(true);
+
+    const computedLat = -6.1 - pin.y / 1000;
+    const computedLng = 106.8 + pin.x / 1000;
+
+    try {
+      // 1. Post claim to backend API
+      const createdClaim = await claimService.createClaim(p.id, {
+        proposed_address: proposed,
+        address_line: address.trim() || undefined,
+        kelurahan: kelurahan.trim() || undefined,
+        kecamatan: kecamatan.trim(),
+        landmark: landmark.trim() || undefined,
+        proposed_precision: level,
+        latitude: computedLat,
+        longitude: computedLng,
+      });
+
+      // 2. Upload media file if available
+      let mediaUploadedUrl = photo;
+      if (photoFile) {
+        try {
+          const mediaRes = await claimService.uploadClaimMedia(createdClaim.id, photoFile);
+          if (mediaRes?.file_url) {
+            mediaUploadedUrl = mediaRes.file_url;
+          }
+        } catch {
+          // Keep local objectURL if media upload endpoint fails
+        }
+      }
+
+      const claim: CitizenClaim = {
+        id: createdClaim.id,
+        projectId: p.id,
+        projectTitle: p.title,
+        spseCode: p.spseCode,
+        proposedAddress: proposed,
+        proposedPrecision: level,
+        createdAt: 'Baru saja',
+        status: createdClaim.status,
+      };
+
+      const item: VerificationItem = {
+        id: `ver-${createdClaim.id}`,
+        projectId: p.id,
+        projectTitle: p.title,
+        spseCode: p.spseCode,
+        satker: p.satker,
+        paguCompact: p.paguCompact,
+        itemType: 'klaim_lokasi',
+        categoryLabel: 'Klaim Lokasi Kanonik',
+        authorDisplayName: currentUser,
+        createdAt: 'Baru saja',
+        distanceFromProject: undefined,
+        exifValid: exifValid,
+        exifNotice: exifValid ? EXIF_VALID_TEXT : EXIF_INVALID_TEXT,
+        narrative: landmark ? `Patokan: ${landmark}` : 'Klaim titik lokasi proyek.',
+        proposedAddress: proposed,
+        proposedPrecision: level,
+        coordinates: { lat: computedLat, lng: computedLng },
+        photoUrl: mediaUploadedUrl,
+        votesAgree: 0,
+        votesDisagree: 0,
+        targetVotes: 3,
+        voters: [],
+        status: 'menunggu',
+        claimId: createdClaim.id,
+      };
+
+      addClaim(claim, item);
+      setSent(true);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string; details?: Array<{ message: string }> } } } };
+      const apiErr = e.response?.data?.error;
+      const detail = apiErr?.details?.[0]?.message;
+      setErrors([detail || apiErr?.message || 'Gagal mengirim klaim lokasi ke server. Pastikan Anda telah masuk.']);
+    } finally {
+      setSubmitting(false);
+    }
   };
+
 
   if (sent)
     return (
@@ -163,7 +236,7 @@ export default function ClaimLocationView() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {WARTA_PROJECTS.map((proj) => (
+              {availableProjects.map((proj) => (
                 <SelectItem key={proj.id} value={proj.id}>
                   {proj.title} (#{proj.spseCode} · {proj.paguCompact})
                 </SelectItem>
@@ -180,6 +253,7 @@ export default function ClaimLocationView() {
         </p>
         {p.precisionMicrocopy && <p className="rounded-xl bg-white/10 p-3 text-sm">{p.precisionMicrocopy}</p>}
       </div>
+
 
       {errors.length > 0 && (
         <ul
@@ -304,10 +378,20 @@ export default function ClaimLocationView() {
       <button
         type="submit"
         id="claim-submit"
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-base font-bold text-white hover:bg-brand-dark"
+        disabled={submitting}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-base font-bold text-white hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Send className="size-5" /> Kirim Klaim Lokasi
+        {submitting ? (
+          <>
+            <Loader2 className="size-5 animate-spin" /> Mengirim Klaim & Berkas…
+          </>
+        ) : (
+          <>
+            <Send className="size-5" /> Kirim Klaim Lokasi
+          </>
+        )}
       </button>
+
     </form>
   );
 }

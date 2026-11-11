@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, FilePlus2, Layers, MapPinOff, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
+
 import { useWarta } from '../../context/WartaContext';
 import { WARTA_PROJECTS } from '../../data/wartaData';
-import type { PrecisionLevel, ReportStatus } from '../../types/warta';
+import type { PrecisionLevel, ProjectPackage, ReportStatus } from '../../types/warta';
 import { cn } from '@/lib/utils';
 import {
   Select,
@@ -14,9 +15,9 @@ import {
 import JakartaSvgMap from '../map/JakartaSvgMap';
 import MapFloatingSheet from '../map/MapFloatingSheet';
 import ProjectCard from '../project/ProjectCard';
+import { projectService, type ProjectSummaryDTO } from '../../services/project';
 
 const YEARS = ['2022', '2023', '2024', '2025', '2026', '2027'];
-const CATEGORIES = [...new Set(WARTA_PROJECTS.map((p) => p.category))];
 const PRECISIONS: PrecisionLevel[] = ['kabupaten/kota', 'kecamatan', 'desa/kelurahan', 'alamat/ruas', 'titik'];
 const STATUSES: ReportStatus[] = ['menunggu', 'terverifikasi', 'ditolak', 'selesai'];
 
@@ -28,6 +29,49 @@ const STATUS_LABEL: Record<ReportStatus, string> = {
   selesai: 'Selesai',
 };
 
+function dtoToProjectPackage(dto: ProjectSummaryDTO): ProjectPackage {
+  return {
+    id: dto.id,
+    title: dto.title,
+    spseCode: dto.spse_code,
+    failedTenders: [],
+    satker: dto.satker,
+    category: dto.category,
+    paguRaw: parseFloat(dto.pagu_amount) || 0,
+    paguCompact: `Rp ${dto.pagu_amount}`,
+    paguFull: `Rp ${dto.pagu_amount}`,
+    hpsCompact: `Rp ${dto.hps_amount}`,
+    hpsFull: `Rp ${dto.hps_amount}`,
+    kontrakCompact: dto.contract_amount ? `Rp ${dto.contract_amount}` : null,
+    kontrakFull: dto.contract_amount ? `Rp ${dto.contract_amount}` : null,
+    kontrakAvailable: dto.contract_available,
+    contractMicrocopy: dto.derived?.contract_microcopy,
+    years: dto.years.map(String),
+    fundingSource: dto.derived?.funding_source || 'APBD DKI Jakarta',
+    multiYearsMicrocopy: dto.derived?.multi_years_microcopy,
+    city: dto.city,
+    isOutsideDki: dto.is_outside_dki,
+    locationDesc: dto.city,
+    precisionLevel: dto.precision_level,
+    precisionBadge: dto.derived?.precision_badge || dto.precision_level,
+    isRoughArea: dto.derived?.is_rough_area ?? false,
+    precisionMicrocopy: dto.derived?.precision_microcopy,
+    isCanonicalClaimed: dto.is_canonical_claimed,
+    canonicalMicrocopy: dto.derived?.canonical_microcopy,
+    locationSource: dto.location_source,
+    isRetender: dto.is_retender,
+    retenderMicrocopy: dto.derived?.retender_microcopy,
+    subLocationsMicrocopy: dto.derived?.sub_locations_microcopy,
+    riskFlags: [],
+    distanceText: dto.derived?.distance_text || dto.city,
+    reportsCount: dto.reports_count,
+    verificationsCount: dto.verifications_count,
+    status: dto.status,
+    sourceNote: 'Sumber: SPSE / LPSE DKI Jakarta',
+    mapCoordinates: { svgX: 50, svgY: 50, lat: -6.2, lng: 106.8 },
+  };
+}
+
 export default function MapExplorerView() {
   const { mapCondition, setMapCondition, compactRupiah, toggleRupiah, selectedProjectId, selectProject, navigate } = useWarta();
   const [q, setQ] = useState('');
@@ -38,18 +82,36 @@ export default function MapExplorerView() {
   const [hasReports, setHasReports] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
+  const [apiProjects, setApiProjects] = useState<ProjectPackage[]>([]);
+
+  useEffect(() => {
+    projectService
+      .listProjects({ limit: 100 })
+      .then((res) => {
+        if (res.data && res.data.length > 0) {
+          setApiProjects(res.data.map(dtoToProjectPackage));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+
+  const projectsSource = apiProjects.length > 0 ? apiProjects : WARTA_PROJECTS;
+  const categories = useMemo(() => [...new Set(projectsSource.map((p) => p.category))], [projectsSource]);
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return WARTA_PROJECTS.filter(
+    return projectsSource.filter(
       (p) =>
-        (!s || [p.title, p.spseCode, p.locationDesc, p.city, ...p.failedTenders.map((t) => t.code)].some((v) => v.toLowerCase().includes(s))) &&
+        (!s || [p.title, p.spseCode, p.locationDesc, p.city, ...(p.failedTenders || []).map((t) => t.code)].some((v) => v.toLowerCase().includes(s))) &&
         (!category || p.category === category) &&
         (!status || p.status === status) &&
         (!year || p.years.includes(year)) &&
         (!precision || p.precisionLevel === precision) &&
         (!hasReports || p.reportsCount > 0),
     );
-  }, [q, category, status, year, precision, hasReports]);
+  }, [projectsSource, q, category, status, year, precision, hasReports]);
+
 
   const forcedEmpty = mapCondition === 'filter-empty';
   const list = forcedEmpty ? [] : filtered;
@@ -162,9 +224,10 @@ export default function MapExplorerView() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__all__">Semua kategori</SelectItem>
-                      {CATEGORIES.map((c) => (
+                      {categories.map((c) => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
+
                     </SelectContent>
                   </Select>
 

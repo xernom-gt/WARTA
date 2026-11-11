@@ -35,6 +35,7 @@ import (
 	"warta.com/api/internal/db"
 	"warta.com/api/internal/evidence"
 	"warta.com/api/internal/httpx"
+	"warta.com/api/internal/lookup"
 	"warta.com/api/internal/mailer"
 	"warta.com/api/internal/middleware"
 	"warta.com/api/internal/password"
@@ -125,19 +126,7 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		Store:   reportStore,
 		Storage: mediaStorage,
 		CallerLookup: func(ctx context.Context, userID string) (*report.Caller, error) {
-			u, err := store.FindByID(ctx, userID)
-			if errors.Is(err, user.ErrNotFound) {
-				return nil, report.ErrCallerNotFound
-			}
-			if err != nil {
-				return nil, err
-			}
-			return &report.Caller{
-				ID:            u.ID,
-				DisplayName:   u.DisplayName,
-				IsActive:      u.IsActive,
-				EmailVerified: u.EmailVerifiedAt != nil,
-			}, nil
+			return lookup.ReportCaller(ctx, store, userID)
 		},
 	})
 	evidenceStore := evidence.NewPGStore(pool)
@@ -145,29 +134,10 @@ func wire(cfg config.Config, pool *pgxpool.Pool, store user.Store) api {
 		Store:   evidenceStore,
 		Storage: mediaStorage,
 		CallerLookup: func(ctx context.Context, userID string) (*evidence.Caller, error) {
-			u, err := store.FindByID(ctx, userID)
-			if errors.Is(err, user.ErrNotFound) {
-				return nil, evidence.ErrCallerNotFound
-			}
-			if err != nil {
-				return nil, err
-			}
-			return &evidence.Caller{
-				ID:            u.ID,
-				DisplayName:   u.DisplayName,
-				IsActive:      u.IsActive,
-				EmailVerified: u.EmailVerifiedAt != nil,
-			}, nil
+			return lookup.EvidenceCaller(ctx, store, userID)
 		},
 		ReportLookup: func(ctx context.Context, reportID string, callerID string) (bool, error) {
-			r, err := reportStore.FindByID(ctx, reportID)
-			if err != nil {
-				return false, err
-			}
-			if r.Status == report.StatusDraft {
-				return callerID != "" && callerID == r.UserID, nil
-			}
-			return true, nil
+			return lookup.ReportReadable(ctx, reportStore, reportID, callerID)
 		},
 	})
 	claimHandlers := claim.NewHandler(claim.NewPGStore(pool), mediaStorage)
@@ -294,11 +264,16 @@ func devSeedUsers() []user.User {
 	}
 }
 
+// poolPinger abstracts pool.Ping for health check testing.
+type poolPinger interface {
+	Ping(context.Context) error
+}
+
 // health implements openapi.yaml /health (HealthResponse, bare object):
 // 200 "ok" when the database responds, 503 "degraded" when it does not.
 // storage is always "down" for now because object storage is a later
 // milestone (§11); the contract's enum accepts it.
-func health(c fiber.Ctx, pool *pgxpool.Pool, storage report.MediaStorage, cfg config.Config) error {
+func health(c fiber.Ctx, pool poolPinger, storage report.MediaStorage, cfg config.Config) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 	defer cancel()
 
