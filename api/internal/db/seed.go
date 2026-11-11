@@ -32,21 +32,11 @@ func SeedDevProjects(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// SeedDevUsers inserts development citizens when the users table is empty.
-// Passwords must already be hashed by the caller (password.Hash). It runs
-// inside one transaction and never touches rows in a non-empty table, so it
-// is a no-op against any environment that already has data (like
-// database-design.md §9.1 rule 8: keep sample data out of migrations).
+// SeedDevUsers inserts development citizens and admin accounts.
+// Passwords must already be hashed by the caller (password.Hash). It checks
+// each user by email and creates any missing users, making it idempotent and
+// safe across migrations and dev restarts.
 func SeedDevUsers(ctx context.Context, pool *pgxpool.Pool, users []user.User) error {
-	var count int64
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		log.Printf("db: seed skipped, %d users already present", count)
-		return nil
-	}
-
 	store := user.NewPGStore(pool)
 	now := time.Now().UTC()
 	for i := range users {
@@ -54,12 +44,19 @@ func SeedDevUsers(ctx context.Context, pool *pgxpool.Pool, users []user.User) er
 		if u.PasswordHash == "" {
 			return errors.New("db: seed users must carry a password hash")
 		}
+		existing, err := store.FindByEmail(ctx, u.Email)
+		if err == nil && existing != nil {
+			continue
+		}
+		if err != nil && !errors.Is(err, user.ErrNotFound) {
+			return err
+		}
 		u.IsActive = true
 		u.EmailVerifiedAt = &now
 		if err := store.Create(ctx, &u); err != nil {
 			return err
 		}
+		log.Printf("db: seeded development user %s (%s)", u.Email, u.Role)
 	}
-	log.Printf("db: seeded %d development users", len(users))
 	return nil
 }

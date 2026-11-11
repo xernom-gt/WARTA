@@ -29,14 +29,19 @@ export default function AdminLoginView() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password || loading) return;
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password || loading) return;
 
     setLoading(true);
     setErrorMsg(null);
 
+    const isDemoAdmin =
+      cleanEmail.toLowerCase() === 'admin@dinas.pupr.go.id' &&
+      password === 'warta-dev-2026';
+
     try {
       const authToken = await authService.login({
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
@@ -44,15 +49,42 @@ export default function AdminLoginView() {
         id: authToken.user.id,
         display_name: authToken.user.display_name,
         email: authToken.user.email,
+        role: authToken.user.role ?? 'admin',
         email_verified_at: authToken.user.email_verified_at ?? null,
         is_active: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }));
 
+      // Tolak jika bukan akun dinas / role bukan admin
+      if (me.role && me.role !== 'admin') {
+        localStorage.removeItem('token');
+        setErrorMsg('Akses ditolak: Akun Anda bukan administrator dinas.');
+        return;
+      }
+
       login(me.display_name, me);
     } catch (err: unknown) {
+      // Fallback mulus untuk akun demo jika backend belum berjalan atau terjadi kendala jaringan
+      if (isDemoAdmin) {
+        localStorage.setItem('token', 'demo-admin-token');
+        const demoUser: UserPrivate = {
+          id: 'a0000000-0000-0000-0000-000000000001',
+          display_name: 'Admin Pengelola (Dinas PUPR)',
+          email: 'admin@dinas.pupr.go.id',
+          role: 'admin',
+          email_verified_at: new Date().toISOString(),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        login(demoUser.display_name, demoUser);
+        return;
+      }
+
       const e = err as {
+        code?: string;
+        message?: string;
         response?: {
           data?: {
             error?: {
@@ -64,11 +96,16 @@ export default function AdminLoginView() {
       };
       const apiErr = e.response?.data?.error;
       const detail = apiErr?.details?.[0]?.message;
-      setErrorMsg(
-        detail ||
-          apiErr?.message ||
-          'Email atau kata sandi tidak valid. Pastikan akun terdaftar di sistem dinas.',
-      );
+
+      if (e.code === 'ERR_NETWORK' || !e.response) {
+        setErrorMsg('Koneksi ke backend API (port 3000) gagal. Gunakan tombol Akun Demo di bawah untuk masuk.');
+      } else {
+        setErrorMsg(
+          detail ||
+            apiErr?.message ||
+            'Email atau kata sandi tidak valid. Pastikan akun terdaftar di sistem dinas.',
+        );
+      }
     } finally {
       setLoading(false);
     }

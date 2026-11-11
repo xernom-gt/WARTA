@@ -3,8 +3,10 @@ import type { components } from '../types/api';
 
 export type LoginRequest = components['schemas']['LoginRequest'];
 export type RegisterRequest = components['schemas']['RegisterRequest'];
-export type AuthToken = components['schemas']['AuthToken'];
-export type UserPrivate = components['schemas']['UserPrivate'];
+export type AuthToken = components['schemas']['AuthToken'] & {
+  user: components['schemas']['AuthToken']['user'] & { role?: string };
+};
+export type UserPrivate = components['schemas']['UserPrivate'] & { role?: string };
 
 export interface ApiResponse<T> {
   data: T;

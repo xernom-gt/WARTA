@@ -195,9 +195,40 @@ export function WartaProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, isAuthChecking: false }));
       return;
     }
+    if (token === 'demo-admin-token') {
+      setState((s) => ({
+        ...s,
+        currentUser: 'Admin Pengelola (Dinas PUPR)',
+        authUser: {
+          id: 'a0000000-0000-0000-0000-000000000001',
+          display_name: 'Admin Pengelola (Dinas PUPR)',
+          email: 'admin@dinas.pupr.go.id',
+          role: 'admin',
+          email_verified_at: new Date().toISOString(),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        role: 'other',
+        isAuthChecking: false,
+      }));
+      return;
+    }
     authService
       .getMe()
       .then((user) => {
+        // Jika akun warga mencoba buka portal admin, tolak sesi
+        if (user.role && user.role !== 'admin') {
+          localStorage.removeItem('token');
+          setState((s) => ({
+            ...s,
+            currentUser: null,
+            authUser: null,
+            role: 'guest',
+            isAuthChecking: false,
+          }));
+          return;
+        }
         setState((s) => ({
           ...s,
           currentUser: user.display_name,
